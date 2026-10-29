@@ -18,7 +18,7 @@ interface EditCallbacks {
 }
 
 /** Resolve screenshot URL from annotation data */
-function screenshotUrl(screenshot: string | undefined, endpoint?: string): string | null {
+export function screenshotUrl(screenshot: string | undefined, endpoint?: string): string | null {
   if (!screenshot) return null
   if (screenshot.startsWith('data:')) return screenshot
   // Backend path like "screenshots/01ABC.png" — serve via endpoint

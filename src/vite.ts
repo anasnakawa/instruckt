@@ -14,7 +14,7 @@ export interface InstrucktPluginOptions {
   /** Customize marker pin colors */
   colors?: { default?: string; screenshot?: string; dismissed?: string }
   /** Customize keyboard shortcuts */
-  keys?: { annotate?: string; freeze?: string; screenshot?: string; clearPage?: string }
+  keys?: { annotate?: string; list?: string; screenshot?: string; clearPage?: string }
   /** Storage directory relative to project root. Default: '.instruckt' */
   dir?: string
   /**

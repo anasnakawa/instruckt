@@ -229,7 +229,7 @@ instruckt({
   colors: { default: '#6366f1', screenshot: '#22c55e', dismissed: '#71717a' },
 
   // Customize keyboard shortcuts
-  keys: { annotate: 'a', freeze: 'f', screenshot: 'c', clearPage: 'x' },
+  keys: { annotate: 'a', list: 'l', screenshot: 'c', clearPage: 'x' },
 
   // Storage directory for annotations + screenshots (default: '.instruckt')
   dir: '.instruckt',
@@ -307,7 +307,7 @@ new Instruckt({
   // Customize keyboard shortcuts
   keys: {
     annotate: 'a',    // toggle annotation mode
-    freeze: 'f',      // freeze page
+    list: 'l',        // open the list of all notes
     screenshot: 'c',  // region screenshot capture
     clearPage: 'x',   // clear annotations on this page
   },
@@ -328,7 +328,7 @@ Default shortcuts (customizable via `keys` config):
 | Key | Action |
 |-----|--------|
 | `A` | Toggle annotation mode |
-| `F` | Freeze page (pause animations, block navigation) |
+| `L` | Open the list of all notes (select, copy, edit, delete, show on page) |
 | `C` | Screenshot region capture |
 | `X` | Clear all annotations on this page |
 | `Esc` | Exit annotation/freeze mode |

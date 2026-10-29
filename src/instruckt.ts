@@ -3,8 +3,9 @@ import { InstrucktApi } from './api'
 import type { AnnotationPayload } from './api'
 import { Toolbar } from './ui/toolbar'
 import { ElementHighlight } from './ui/highlight'
-import { AnnotationPopup } from './ui/popup'
+import { AnnotationPopup, screenshotUrl } from './ui/popup'
 import { AnnotationMarkers } from './ui/markers'
+import { ListPanel } from './ui/list-panel'
 import { injectGlobalStyles } from './ui/styles'
 import { getElementSelector, getElementName, getElementLabel, getNearbyText, getCssClasses, getPageBoundingBox } from './selector'
 import { captureElement, captureRegion, selectRegion, setPreferScreenCapture } from './ui/screenshot'
@@ -31,11 +32,9 @@ export class Instruckt {
   private highlight: ElementHighlight | null = null
   private popup: AnnotationPopup | null = null
   private markers: AnnotationMarkers | null = null
+  private listPanel: ListPanel | null = null
   private annotations: Annotation[] = []
   private isAnnotating = false
-  private isFrozen = false
-  private frozenStyleEl: HTMLStyleElement | null = null
-  private frozenPopovers: { el: HTMLElement; original: string }[] = []
   private rafId: number | null = null
   private pendingMouseTarget: Element | null = null
   private highlightLocked = false
@@ -77,11 +76,10 @@ export class Instruckt {
       onToggleAnnotate: (active) => {
         this.setAnnotating(active)
       },
-      onFreezeAnimations: (frozen) => {
-        this.setFrozen(frozen)
-      },
       onScreenshot: () => this.startRegionCapture(),
-      onCopy: () => this.copyToClipboard(true),
+      onCopy: () => this.copyAnnotations(this.activeAnnotations(), true),
+      onCopyAndClear: () => this.copyAndClear(),
+      onToggleList: (open) => this.setListOpen(open),
       onClearPage: () => this.clearPage(),
       onClearAll: () => this.clearEverything(),
       onMinimize: (min) => this.onMinimize(min),
@@ -90,6 +88,7 @@ export class Instruckt {
     this.highlight = new ElementHighlight()
     this.popup = new AnnotationPopup()
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
+    this.listPanel = this.makeListPanel()
 
     document.addEventListener('keydown', this.boundKeydown)
     window.addEventListener('scroll', this.boundReposition, { passive: true })
@@ -111,27 +110,58 @@ export class Instruckt {
       onToggleAnnotate: (active: boolean) => {
         this.setAnnotating(active)
       },
-      onFreezeAnimations: (frozen: boolean) => {
-        this.setFrozen(frozen)
-      },
       onScreenshot: () => this.startRegionCapture(),
-      onCopy: () => this.copyToClipboard(true),
+      onCopy: () => this.copyAnnotations(this.activeAnnotations(), true),
+      onCopyAndClear: () => this.copyAndClear(),
+      onToggleList: (open: boolean) => this.setListOpen(open),
       onClearPage: () => this.clearPage(),
       onClearAll: () => this.clearEverything(),
       onMinimize: (min: boolean) => this.onMinimize(min),
     }
   }
 
+  private makeListPanel(): ListPanel {
+    return new ListPanel({
+      annotations: () => this.activeAnnotations(),
+      currentPage: () => pageKey(),
+      pageOf: (a) => this.annotationPageKey(a),
+      screenshotSrc: (a) => screenshotUrl(a.screenshot, this.config.endpoint),
+      anchor: () => this.toolbar?.getRect() ?? null,
+      onCopy: (list) => this.copyAnnotations(list, true),
+      onDelete: (list) => this.deleteAnnotations(list),
+      onSave: (a, comment) => this.saveComment(a, comment),
+      onGoTo: (a) => this.goTo(a),
+      onClose: () => this.toolbar?.setListActive(false),
+    })
+  }
+
+  private setListOpen(open: boolean): void {
+    if (open) this.listPanel?.open()
+    else this.listPanel?.close()
+    this.toolbar?.setListActive(open)
+  }
+
+  /** Bring an annotation into view: scroll to it on this page, or open its page. */
+  private goTo(a: Annotation): void {
+    if (this.annotationPageKey(a) !== pageKey()) {
+      window.location.assign(a.url)
+      return
+    }
+    let el: Element | null = null
+    try { el = document.querySelector(a.elementPath) } catch { /* invalid selector */ }
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    else window.scrollTo({ top: Math.max(0, a.y - window.innerHeight / 2), behavior: 'smooth' })
+    this.markers?.pulse(a.id)
+  }
+
   private reattach(): void {
     const wasAnnotating = this.isAnnotating
-    const wasFrozen = this.isFrozen
+    const wasListOpen = this.listPanel?.isOpen() ?? false
     const wasMinimized = this.toolbar?.isMinimized() ?? false
 
     // Detach current listeners before rebuilding
     if (this.isAnnotating) this.detachAnnotateListeners()
-    if (this.isFrozen) this.setFrozen(false)
     this.isAnnotating = false
-    this.isFrozen = false
 
     // Remove any stale instruckt DOM (Livewire caches and restores old HTML on back nav)
     document.querySelectorAll('[data-instruckt]').forEach(el => el.remove())
@@ -142,6 +172,7 @@ export class Instruckt {
 
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
     this.highlight = new ElementHighlight()
+    this.listPanel = this.makeListPanel()
 
     if (wasMinimized) this.markers.setVisible(false)
 
@@ -154,6 +185,7 @@ export class Instruckt {
 
     // Restore active modes
     if (wasAnnotating && !wasMinimized) this.setAnnotating(true)
+    if (wasListOpen && !wasMinimized) this.setListOpen(true)
   }
 
   // ── Minimize ────────────────────────────────────────────────────
@@ -162,9 +194,8 @@ export class Instruckt {
     if (minimized) {
       // Deactivate everything when minimized
       if (this.isAnnotating) this.setAnnotating(false)
-      if (this.isFrozen) this.setFrozen(false)
+      this.setListOpen(false)
       this.toolbar?.setAnnotateActive(false)
-      this.toolbar?.setFreezeActive(false)
       this.markers?.setVisible(false)
       this.popup?.destroy()
     } else {
@@ -327,6 +358,7 @@ export class Instruckt {
     }
     this.toolbar?.setAnnotationCount(this.pageAnnotations().length)
     this.toolbar?.setTotalCount(this.totalActiveCount())
+    this.listPanel?.refresh()
     this.updatePolling()
   }
 
@@ -346,8 +378,12 @@ export class Instruckt {
     )
   }
 
+  private activeAnnotations(): Annotation[] {
+    return this.annotations.filter(a => a.status !== 'resolved' && a.status !== 'dismissed')
+  }
+
   private totalActiveCount(): number {
-    return this.annotations.filter(a => a.status !== 'resolved' && a.status !== 'dismissed').length
+    return this.activeAnnotations().length
   }
 
   // ── Annotate mode ─────────────────────────────────────────────
@@ -362,138 +398,6 @@ export class Instruckt {
       this.highlight?.hide()
       if (this.rafId !== null) { cancelAnimationFrame(this.rafId); this.rafId = null }
     }
-    // When frozen, toggle pointer-events based on annotate state
-    this.updateFreezeStyles()
-  }
-
-  // ── Freeze mode ──────────────────────────────────────────────
-
-  private setFrozen(frozen: boolean): void {
-    this.isFrozen = frozen
-    this.toolbar?.setFreezeActive(frozen)
-    if (frozen) {
-      this.updateFreezeStyles()
-      this.freezePopovers()
-      // Use window (not document) so we intercept before Livewire/Alpine handlers
-      // on document. Capture on window fires before capture on document.
-      for (const evt of this.freezeBlockEvents) {
-        window.addEventListener(evt, this.boundFreezeClick, true)
-      }
-      window.addEventListener('submit', this.boundFreezeSubmit, true)
-      // Block events that close dropdowns/popovers (window capture to beat frameworks)
-      for (const evt of this.freezePassiveEvents) {
-        window.addEventListener(evt, this.boundFreezePassive, true)
-      }
-    } else {
-      this.frozenStyleEl?.remove()
-      this.frozenStyleEl = null
-      this.unfreezePopovers()
-      for (const evt of this.freezeBlockEvents) {
-        window.removeEventListener(evt, this.boundFreezeClick, true)
-      }
-      window.removeEventListener('submit', this.boundFreezeSubmit, true)
-      for (const evt of this.freezePassiveEvents) {
-        window.removeEventListener(evt, this.boundFreezePassive, true)
-      }
-    }
-  }
-
-  /** Pull open popovers out of the top layer so the rest of the page is clickable */
-  private freezePopovers(): void {
-    this.frozenPopovers = []
-    const openSelector = ':popover-open, .\\:popover-open'
-    document.querySelectorAll('[popover]').forEach((el) => {
-      const htmlEl = el as HTMLElement
-      const val = htmlEl.getAttribute('popover') ?? ''
-      let isOpen = false
-      try { isOpen = htmlEl.matches(openSelector) } catch {
-        try { isOpen = htmlEl.matches('.\\:popover-open') } catch { /* ignore */ }
-      }
-      if (!isOpen) return
-      // Save position before removing popover attribute
-      const rect = htmlEl.getBoundingClientRect()
-      this.frozenPopovers.push({ el: htmlEl, original: val })
-      // Remove popover attribute — pulls element out of top layer
-      htmlEl.removeAttribute('popover')
-      // Keep it visible with inline styles
-      htmlEl.style.setProperty('display', 'block', 'important')
-      htmlEl.style.setProperty('position', 'fixed', 'important')
-      htmlEl.style.setProperty('z-index', '2147483644', 'important')
-      htmlEl.style.setProperty('top', `${rect.top}px`, 'important')
-      htmlEl.style.setProperty('left', `${rect.left}px`, 'important')
-      htmlEl.style.setProperty('width', `${rect.width}px`, 'important')
-      // Add the polyfill class so Flux thinks it's still open
-      htmlEl.classList.add(':popover-open')
-    })
-  }
-
-  /** Restore popover attributes */
-  private unfreezePopovers(): void {
-    for (const { el, original } of this.frozenPopovers) {
-      // Remove inline overrides
-      for (const prop of ['display', 'position', 'z-index', 'top', 'left', 'width']) {
-        el.style.removeProperty(prop)
-      }
-      el.classList.remove(':popover-open')
-      el.setAttribute('popover', original || 'auto')
-    }
-    this.frozenPopovers = []
-  }
-
-  private freezeBlockEvents = ['click', 'mousedown', 'pointerdown', 'pointerup', 'mouseup', 'touchstart', 'touchend', 'auxclick'] as const
-  private freezePassiveEvents = ['focusin', 'focusout', 'blur', 'pointerleave', 'mouseleave', 'mouseout'] as const
-
-  /** Update freeze CSS — pointer-events only blocked when NOT annotating */
-  private updateFreezeStyles(): void {
-    if (!this.isFrozen) return
-    this.frozenStyleEl?.remove()
-    this.frozenStyleEl = document.createElement('style')
-    this.frozenStyleEl.id = 'instruckt-freeze'
-    const pointerBlock = this.isAnnotating ? '' : `
-        a[href], a[wire\\:navigate], [wire\\:click], [wire\\:navigate],
-        [x-on\\:click], [@click], [v-on\\:click], [onclick],
-        button, input[type="submit"], select, [role="button"], [role="link"],
-        [tabindex] {
-          pointer-events: none !important;
-          cursor: not-allowed !important;
-        }
-      `
-    this.frozenStyleEl.textContent = `
-        *, *::before, *::after {
-          animation-play-state: paused !important;
-          transition: none !important;
-        }
-        video { filter: none !important; }
-        ${pointerBlock}
-      `
-    document.head.appendChild(this.frozenStyleEl)
-  }
-
-  /** Block interactions on the page when frozen (except instruckt UI) */
-  private boundFreezeClick = (e: Event): void => {
-    if (this.isInstruckt(e.target)) return
-    // When annotating, only let 'click' through (annotate handler needs it).
-    // Always block mousedown/pointerdown/touchstart to prevent framework
-    // handlers (Alpine @click.outside, Livewire wire:navigate) from firing.
-    if (this.isAnnotating && e.type === 'click') return
-    e.preventDefault()
-    e.stopPropagation()
-    e.stopImmediatePropagation()
-  }
-
-  private boundFreezeSubmit = (e: Event): void => {
-    e.preventDefault()
-    e.stopPropagation()
-    e.stopImmediatePropagation()
-  }
-
-  /** Block focus/hover events that JS dropdowns use to auto-close.
-   *  Block ALL of these — even on instruckt elements — because frameworks
-   *  like Flux check if focusin target is contained in the popover and
-   *  close it if it's not (e.g. focus moved to our popup textarea). */
-  private boundFreezePassive = (e: Event): void => {
-    e.stopPropagation()
-    e.stopImmediatePropagation()
   }
 
   // ── Event listeners ───────────────────────────────────────────
@@ -772,29 +676,27 @@ export class Instruckt {
     this.saveToStorage()
     this.syncMarkers()
     this.config.onAnnotationAdd?.(annotation)
-    this.copyAnnotations()
+    // Auto-copy everything open; no execCommand fallback, it would steal focus from the page
+    this.copyAnnotations(this.activeAnnotations(), false)
   }
 
   // ── Marker click — edit or delete ─────────────────────────────
 
   private onMarkerClick(annotation: Annotation): void {
     this.popup?.showEdit(annotation, {
-      onSave: async (a, newComment) => {
-        try {
-          const updated = await this.api.updateAnnotation(a.id, { comment: newComment })
-          this.onAnnotationUpdated(updated)
-        } catch {
-          // No backend — update locally
-          this.onAnnotationUpdated({ ...a, comment: newComment, updatedAt: new Date().toISOString() })
-        }
-      },
-      onDelete: async (a) => {
-        try {
-          await this.api.updateAnnotation(a.id, { status: 'dismissed' })
-        } catch { /* no backend — just remove locally */ }
-        this.removeAnnotation(a.id)
-      },
+      onSave: (a, newComment) => this.saveComment(a, newComment),
+      onDelete: (a) => this.deleteAnnotations([a]),
     }, this.config.endpoint)
+  }
+
+  private async saveComment(a: Annotation, comment: string): Promise<void> {
+    try {
+      const updated = await this.api.updateAnnotation(a.id, { comment })
+      this.onAnnotationUpdated(updated)
+    } catch {
+      // No backend: update locally
+      this.onAnnotationUpdated({ ...a, comment, updatedAt: new Date().toISOString() })
+    }
   }
 
   private onAnnotationUpdated(updated: Annotation): void {
@@ -806,36 +708,33 @@ export class Instruckt {
     this.syncMarkers()
   }
 
-  private removeAnnotation(id: string): void {
-    this.annotations = this.annotations.filter(a => a.id !== id)
+  /** Dismiss on the backend (best effort) and drop locally. */
+  private async deleteAnnotations(list: Annotation[]): Promise<void> {
+    if (list.length === 0) return
+    await Promise.all(list.map(a => this.api.updateAnnotation(a.id, { status: 'dismissed' }).catch(() => { /* no backend */ })))
+    const ids = new Set(list.map(a => a.id))
+    this.annotations = this.annotations.filter(a => !ids.has(a.id))
     this.saveToStorage()
     this.syncMarkers()
   }
 
   // ── Clear ───────────────────────────────────────────────────────
 
-  private async clearPage(): Promise<void> {
-    const page = this.pageAnnotations()
-    for (const a of page) {
-      try {
-        await this.api.updateAnnotation(a.id, { status: 'dismissed' })
-      } catch { /* best effort */ }
-    }
-    this.annotations = this.annotations.filter(a => !page.includes(a))
-    this.saveToStorage()
-    this.syncMarkers()
+  private clearPage(): Promise<void> {
+    return this.deleteAnnotations(this.pageAnnotations())
   }
 
-  private async clearEverything(): Promise<void> {
-    const active = this.annotations.filter(a => a.status !== 'resolved' && a.status !== 'dismissed')
-    for (const a of active) {
-      try {
-        await this.api.updateAnnotation(a.id, { status: 'dismissed' })
-      } catch { /* best effort */ }
-    }
-    this.annotations = []
-    this.saveToStorage()
-    this.syncMarkers()
+  private clearEverything(): Promise<void> {
+    return this.deleteAnnotations(this.activeAnnotations())
+  }
+
+  /** Copy every open annotation, and clear them only if the copy worked. */
+  private async copyAndClear(): Promise<boolean> {
+    const list = this.activeAnnotations()
+    if (list.length === 0) return false
+    const copied = await this.copyAnnotations(list, true)
+    if (copied) await this.deleteAnnotations(list)
+    return copied
   }
 
   // ── Keyboard ──────────────────────────────────────────────────
@@ -853,8 +752,8 @@ export class Instruckt {
     if (e.key === (keys.annotate ?? 'a') && noMod) {
       this.setAnnotating(!this.isAnnotating)
     }
-    if (e.key === (keys.freeze ?? 'f') && noMod) {
-      this.setFrozen(!this.isFrozen)
+    if (e.key === (keys.list ?? 'l') && noMod) {
+      this.setListOpen(!(this.listPanel?.isOpen() ?? false))
     }
     if (e.key === (keys.screenshot ?? 'c') && noMod) {
       this.startRegionCapture()
@@ -864,37 +763,36 @@ export class Instruckt {
     }
     if (e.key === 'Escape') {
       if (this.isAnnotating) this.setAnnotating(false)
-      if (this.isFrozen) this.setFrozen(false)
+      if (this.listPanel?.isOpen()) this.setListOpen(false)
     }
   }
 
   // ── Copy / export ─────────────────────────────────────────────
 
-  /** Auto-copy on annotation submit — only in secure contexts to avoid focus side-effects */
-  private copyAnnotations(): void {
-    this.copyToClipboard(false)
-  }
-
-  /** Copy to clipboard. With fallback=true, uses execCommand for non-secure contexts (user-initiated only). */
-  private copyToClipboard(fallback: boolean): void {
-    const md = this.exportMarkdown()
+  /** Copy annotations as markdown. With fallback=true, uses execCommand for non-secure contexts (user-initiated only). */
+  private async copyAnnotations(list: Annotation[], fallback: boolean): Promise<boolean> {
+    const md = this.exportMarkdown(list)
     if (window.isSecureContext) {
-      navigator.clipboard.writeText(md).catch(() => { /* unavailable */ })
-    } else if (fallback) {
       try {
-        const el = document.createElement('textarea')
-        el.value = md
-        el.style.cssText = 'position:fixed;left:-9999px'
-        document.body.appendChild(el)
-        el.select()
-        document.execCommand('copy')
-        el.remove()
-      } catch { /* unavailable */ }
+        await navigator.clipboard.writeText(md)
+        return true
+      } catch { return false }
     }
+    if (!fallback) return false
+    try {
+      const el = document.createElement('textarea')
+      el.value = md
+      el.style.cssText = 'position:fixed;left:-9999px'
+      document.body.appendChild(el)
+      el.select()
+      const ok = document.execCommand('copy')
+      el.remove()
+      return ok
+    } catch { return false }
   }
 
-  exportMarkdown(): string {
-    const pending = this.annotations.filter(a => a.status !== 'resolved' && a.status !== 'dismissed')
+  exportMarkdown(list: Annotation[] = this.activeAnnotations()): string {
+    const pending = list.filter(a => a.status !== 'resolved' && a.status !== 'dismissed')
     if (pending.length === 0) {
       return `# UI Feedback\n\nNo open annotations.`
     }
@@ -996,7 +894,6 @@ export class Instruckt {
 
   destroy(): void {
     this.setAnnotating(false)
-    this.setFrozen(false)
     document.removeEventListener('keydown', this.boundKeydown)
     window.removeEventListener('scroll', this.boundReposition)
     window.removeEventListener('resize', this.boundReposition)
@@ -1004,6 +901,7 @@ export class Instruckt {
     this.highlight?.destroy()
     this.popup?.destroy()
     this.markers?.destroy()
+    this.listPanel?.destroy()
     if (this.rafId !== null) cancelAnimationFrame(this.rafId)
     if (this.pollTimer !== null) clearInterval(this.pollTimer)
   }

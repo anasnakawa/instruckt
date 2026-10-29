@@ -85,6 +85,16 @@ export class AnnotationMarkers {
     })
   }
 
+  /** Briefly ring a marker so the eye finds it */
+  pulse(annotationId: string): void {
+    const el = this.markers.get(annotationId)?.el
+    if (!el) return
+    el.classList.remove('ik-pulse')
+    void el.offsetWidth
+    el.classList.add('ik-pulse')
+    setTimeout(() => el.classList.remove('ik-pulse'), 1600)
+  }
+
   remove(annotationId: string): void {
     const marker = this.markers.get(annotationId)
     if (!marker) return

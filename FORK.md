@@ -33,3 +33,4 @@ To see changes at once on local Desk without a release:
 ## Changes from upstream
 
 - 0.5.0: typecheck fix in `src/ui/screenshot.ts` (the screenshot filter takes a `Node`, as `modern-screenshot` now types it). `dist/` is committed.
+- Unreleased: Freeze removed (button, `F` key, `keys.freeze`, `tools.freeze`). New "Copy all notes, then clear them" button (clears only if the copy worked; `tools.copy_clear`). New "All notes" panel (`L` key, `tools.list`): all pages or this page, select and select all, copy or delete the selection (or everything), edit in place, show on page (scrolls and rings the marker, or opens the note's page).

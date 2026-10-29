@@ -1,13 +1,14 @@
 import type { KeyBindings, ToolsConfig } from '../types'
 import { TOOLBAR_CSS } from './styles'
 
-export type ToolbarMode = 'idle' | 'annotating' | 'frozen'
+export type ToolbarMode = 'idle' | 'annotating'
 
 interface ToolbarCallbacks {
   onToggleAnnotate: (active: boolean) => void
-  onFreezeAnimations: (frozen: boolean) => void
   onScreenshot: () => void
-  onCopy: () => void
+  onCopy: () => Promise<boolean>
+  onCopyAndClear: () => Promise<boolean>
+  onToggleList: (open: boolean) => void
   onClearPage?: () => void
   onClearAll?: () => void
   onMinimize?: (minimized: boolean) => void
@@ -17,7 +18,8 @@ interface ToolbarCallbacks {
 
 const ICONS = {
   annotate: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`,
-  freeze: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>`,
+  list: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>`,
+  copyClear: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v4"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="21" y1="15" x2="15" y2="21"/></svg>`,
   copy: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
   check: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
   clear: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
@@ -33,10 +35,11 @@ export class Toolbar {
   private fab!: HTMLButtonElement
   private fabBadge: HTMLSpanElement | null = null
   private annotateBtn!: HTMLButtonElement
-  private freezeBtn!: HTMLButtonElement
+  private listBtn!: HTMLButtonElement
   private copyBtn!: HTMLButtonElement
+  private copyClearBtn!: HTMLButtonElement
   private annotateActive = false
-  private freezeActive = false
+  private listActive = false
   private minimized = false
   private totalCount = 0
   private dragging = false
@@ -94,20 +97,22 @@ export class Toolbar {
       this.callbacks.onToggleAnnotate(next)
     })
 
-    this.freezeBtn = this.makeBtn(ICONS.freeze, `Freeze page (${(k.freeze ?? 'F').toUpperCase()})`, () => {
-      const next = !this.freezeActive
-      this.setFreezeActive(next)
-      this.callbacks.onFreezeAnimations(next)
+    this.listBtn = this.makeBtn(ICONS.list, `All notes (${(k.list ?? 'L').toUpperCase()})`, () => {
+      const next = !this.listActive
+      this.setListActive(next)
+      this.callbacks.onToggleList(next)
     })
 
     const screenshotBtn = this.makeBtn(ICONS.screenshot, `Screenshot region (${(k.screenshot ?? 'C').toUpperCase()})`, () => {
       this.callbacks.onScreenshot()
     })
 
-    this.copyBtn = this.makeBtn(ICONS.copy, 'Copy annotations as markdown', () => {
-      this.callbacks.onCopy()
-      this.copyBtn.innerHTML = ICONS.check
-      setTimeout(() => { this.copyBtn.innerHTML = ICONS.copy }, 1200)
+    this.copyBtn = this.makeBtn(ICONS.copy, 'Copy all notes', async () => {
+      if (await this.callbacks.onCopy()) this.flashDone(this.copyBtn, ICONS.copy)
+    })
+
+    this.copyClearBtn = this.makeBtn(ICONS.copyClear, 'Copy all notes, then clear them', async () => {
+      if (await this.callbacks.onCopyAndClear()) this.flashDone(this.copyClearBtn, ICONS.copyClear)
     })
 
     const clearWrap = document.createElement('div')
@@ -141,8 +146,9 @@ export class Toolbar {
     }
     if (this.show('annotate')) add(this.annotateBtn)
     if (this.show('screenshot')) add(screenshotBtn)
-    if (this.show('freeze')) add(this.freezeBtn)
+    if (this.show('list')) add(this.listBtn)
     if (this.show('copy')) add(this.copyBtn)
+    if (this.show('copy_clear')) add(this.copyClearBtn)
     if (this.show('clear_page') || this.show('clear_all')) add(clearWrap)
     if (this.show('minimize')) add(minimizeBtn)
     this.toolbarEl.append(...toAppend)
@@ -172,6 +178,16 @@ export class Toolbar {
     this.loadSavedPosition()
     const root = document.getElementById('instruckt-root') ?? document.body
     root.appendChild(this.host)
+  }
+
+  /** Swap the icon for a check mark for a moment; badges are kept */
+  private flashDone(btn: HTMLButtonElement, icon: string): void {
+    btn.querySelector('svg')?.remove()
+    btn.insertAdjacentHTML('afterbegin', ICONS.check)
+    setTimeout(() => {
+      btn.querySelector('svg')?.remove()
+      btn.insertAdjacentHTML('afterbegin', icon)
+    }, 1200)
   }
 
   private makeBtn(iconHtml: string, tooltip: string, onClick: () => void): HTMLButtonElement {
@@ -283,9 +299,14 @@ export class Toolbar {
     document.body.classList.toggle('ik-annotating', active)
   }
 
-  setFreezeActive(active: boolean): void {
-    this.freezeActive = active
-    this.freezeBtn.classList.toggle('active', active)
+  setListActive(active: boolean): void {
+    this.listActive = active
+    this.listBtn.classList.toggle('active', active)
+  }
+
+  /** Where the toolbar is on screen, so the list panel can sit beside it */
+  getRect(): DOMRect {
+    return this.host.getBoundingClientRect()
   }
 
   // Keep for compatibility — resolves visual mode from instruckt.ts
@@ -310,6 +331,17 @@ export class Toolbar {
   setTotalCount(count: number): void {
     this.totalCount = count
     this.updateFabBadge()
+    let badge = this.listBtn.querySelector('.badge')
+    if (count > 0) {
+      if (!badge) {
+        badge = document.createElement('span')
+        badge.className = 'badge badge-total'
+        this.listBtn.appendChild(badge)
+      }
+      badge.textContent = count > 99 ? '99+' : String(count)
+    } else {
+      badge?.remove()
+    }
   }
 
   destroy(): void {

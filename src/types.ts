@@ -69,8 +69,8 @@ export interface MarkerColors {
 export interface KeyBindings {
   /** Toggle annotate mode. Default: 'a' */
   annotate?: string
-  /** Toggle freeze. Default: 'f' */
-  freeze?: string
+  /** Toggle the list of all notes. Default: 'l' */
+  list?: string
   /** Region screenshot. Default: 'c' */
   screenshot?: string
   /** Clear page annotations. Default: 'x' */
@@ -81,8 +81,9 @@ export interface KeyBindings {
 export interface ToolsConfig {
   annotate?: boolean
   screenshot?: boolean
-  freeze?: boolean
+  list?: boolean
   copy?: boolean
+  copy_clear?: boolean
   clear_page?: boolean
   clear_all?: boolean
   minimize?: boolean
