@@ -4202,8 +4202,7 @@ var _Instruckt = class _Instruckt {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      const pointerType = e.pointerType || this.lastPointerType;
-      if (pointerType === "touch" || pointerType === "pen") {
+      if (this.lastPointerType === "touch" || this.lastPointerType === "pen") {
         (_a2 = this.touchAim) == null ? void 0 : _a2.tap(target);
         return;
       }

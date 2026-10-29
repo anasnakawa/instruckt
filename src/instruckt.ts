@@ -480,8 +480,8 @@ export class Instruckt {
     e.stopImmediatePropagation()
 
     // No hover on a touch screen: the first tap only aims, so the user can check it before the note opens
-    const pointerType = (e as PointerEvent).pointerType || this.lastPointerType
-    if (pointerType === 'touch' || pointerType === 'pen') {
+    // Read the press, not the click: Safari reports a finger tap's click as pointerType "mouse"
+    if (this.lastPointerType === 'touch' || this.lastPointerType === 'pen') {
       this.touchAim?.tap(target)
       return
     }
