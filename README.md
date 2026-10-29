@@ -331,7 +331,7 @@ Default shortcuts (customizable via `keys` config):
 | `L` | Open the list of all notes (select, copy, edit, delete, show on page) |
 | `C` | Screenshot region capture |
 | `X` | Clear all annotations on this page |
-| `Esc` | Exit annotation/freeze mode |
+| `Esc` | Exit annotation mode, close the notes panel |
 
 ## Features
 
@@ -339,7 +339,7 @@ Default shortcuts (customizable via `keys` config):
 - **Screenshots** — capture element or region screenshots; uses DOM-to-image on standard apps, automatically falls back to Screen Capture API on shadow DOM frameworks (Flux UI, etc.)
 - **Shadow DOM isolation** — all UI renders in shadow roots so it never conflicts with your styles
 - **Copy as markdown** — annotations auto-copy as structured markdown optimized for AI agents
-- **Freeze mode** — pause animations, freeze popovers/dropdowns, and block all navigation
+- **All notes panel**: every note on every page, with select, copy, edit, delete and show on page
 - **Annotation persistence** — annotations survive page reloads via localStorage; with a backend (Vite plugin or Laravel), annotations are stored on disk as JSON
 - **Minimize** — collapse to a small floating button with annotation count badge
 - **Page-scoped markers** — annotation pins reposition on scroll/resize and only appear on the page where they were created

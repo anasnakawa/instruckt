@@ -16,7 +16,7 @@ interface InstrucktPluginOptions {
     /** Customize keyboard shortcuts */
     keys?: {
         annotate?: string;
-        freeze?: string;
+        list?: string;
         screenshot?: string;
         clearPage?: string;
     };

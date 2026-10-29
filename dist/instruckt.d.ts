@@ -59,8 +59,8 @@ interface MarkerColors {
 interface KeyBindings {
     /** Toggle annotate mode. Default: 'a' */
     annotate?: string;
-    /** Toggle freeze. Default: 'f' */
-    freeze?: string;
+    /** Toggle the list of all notes. Default: 'l' */
+    list?: string;
     /** Region screenshot. Default: 'c' */
     screenshot?: string;
     /** Clear page annotations. Default: 'x' */
@@ -70,8 +70,9 @@ interface KeyBindings {
 interface ToolsConfig {
     annotate?: boolean;
     screenshot?: boolean;
-    freeze?: boolean;
+    list?: boolean;
     copy?: boolean;
+    copy_clear?: boolean;
     clear_page?: boolean;
     clear_all?: boolean;
     minimize?: boolean;
@@ -109,11 +110,9 @@ declare class Instruckt {
     private highlight;
     private popup;
     private markers;
+    private listPanel;
     private annotations;
     private isAnnotating;
-    private isFrozen;
-    private frozenStyleEl;
-    private frozenPopovers;
     private rafId;
     private pendingMouseTarget;
     private highlightLocked;
@@ -125,6 +124,10 @@ declare class Instruckt {
     constructor(config: InstrucktConfig);
     private init;
     private makeToolbarCallbacks;
+    private makeListPanel;
+    private setListOpen;
+    /** Bring an annotation into view: scroll to it on this page, or open its page. */
+    private goTo;
     private reattach;
     private onMinimize;
     private static get STORAGE_KEY();
@@ -143,25 +146,9 @@ declare class Instruckt {
     private syncMarkers;
     private annotationPageKey;
     private pageAnnotations;
+    private activeAnnotations;
     private totalActiveCount;
     private setAnnotating;
-    private setFrozen;
-    /** Pull open popovers out of the top layer so the rest of the page is clickable */
-    private freezePopovers;
-    /** Restore popover attributes */
-    private unfreezePopovers;
-    private freezeBlockEvents;
-    private freezePassiveEvents;
-    /** Update freeze CSS — pointer-events only blocked when NOT annotating */
-    private updateFreezeStyles;
-    /** Block interactions on the page when frozen (except instruckt UI) */
-    private boundFreezeClick;
-    private boundFreezeSubmit;
-    /** Block focus/hover events that JS dropdowns use to auto-close.
-     *  Block ALL of these — even on instruckt elements — because frameworks
-     *  like Flux check if focusin target is contained in the popover and
-     *  close it if it's not (e.g. focus moved to our popup textarea). */
-    private boundFreezePassive;
     private boundMouseMove;
     private boundMouseLeave;
     /** Block mousedown/pointerdown in annotation mode so SPA frameworks can't navigate */
@@ -180,16 +167,18 @@ declare class Instruckt {
     private detectFramework;
     private submitAnnotation;
     private onMarkerClick;
+    private saveComment;
     private onAnnotationUpdated;
-    private removeAnnotation;
+    /** Dismiss on the backend (best effort) and drop locally. */
+    private deleteAnnotations;
     private clearPage;
     private clearEverything;
+    /** Copy every open annotation, and clear them only if the copy worked. */
+    private copyAndClear;
     private onKeydown;
-    /** Auto-copy on annotation submit — only in secure contexts to avoid focus side-effects */
+    /** Copy annotations as markdown. With fallback=true, uses execCommand for non-secure contexts (user-initiated only). */
     private copyAnnotations;
-    /** Copy to clipboard. With fallback=true, uses execCommand for non-secure contexts (user-initiated only). */
-    private copyToClipboard;
-    exportMarkdown(): string;
+    exportMarkdown(list?: Annotation[]): string;
     getAnnotations(): Annotation[];
     destroy(): void;
 }
