@@ -6,6 +6,7 @@ import { ElementHighlight } from './ui/highlight'
 import { AnnotationPopup, screenshotUrl } from './ui/popup'
 import { AnnotationMarkers } from './ui/markers'
 import { ListPanel } from './ui/list-panel'
+import { TouchAim } from './ui/touch-aim'
 import { injectGlobalStyles } from './ui/styles'
 import { getElementSelector, getElementName, getElementLabel, getNearbyText, getCssClasses, getPageBoundingBox } from './selector'
 import { captureElement, captureRegion, selectRegion, setPreferScreenCapture } from './ui/screenshot'
@@ -43,6 +44,9 @@ export class Instruckt {
   private popup: AnnotationPopup | null = null
   private markers: AnnotationMarkers | null = null
   private listPanel: ListPanel | null = null
+  private touchAim: TouchAim | null = null
+  /** The kind of pointer behind the last press; a touch tap aims before it opens a note */
+  private lastPointerType = 'mouse'
   private annotations: Annotation[] = []
   private isAnnotating = false
   private rafId: number | null = null
@@ -96,6 +100,7 @@ export class Instruckt {
     }, this.config.keys, this.config.tools)
 
     this.highlight = new ElementHighlight()
+    this.touchAim = this.makeTouchAim()
     this.popup = new AnnotationPopup()
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
     this.listPanel = this.makeListPanel()
@@ -114,6 +119,25 @@ export class Instruckt {
 
     // Load persisted annotations from the backend (async — calls syncMarkers when done)
     this.loadAnnotations()
+  }
+
+  private makeTouchAim(): TouchAim {
+    return new TouchAim({
+      highlight: (el) => {
+        if (el) {
+          this.highlight?.show(el, getElementLabel(el))
+          this.highlightLocked = true
+        } else {
+          this.highlight?.hide()
+          this.highlightLocked = false
+        }
+      },
+      isOurs: (el) => this.isInstruckt(el),
+      onAdd: (el) => {
+        const r = el.getBoundingClientRect()
+        this.openNoteFor(el, r.left + r.width / 2, r.top + r.height / 2)
+      },
+    })
   }
 
   private makeToolbarCallbacks() {
@@ -184,6 +208,7 @@ export class Instruckt {
 
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
     this.highlight = new ElementHighlight()
+    this.touchAim = this.makeTouchAim()
     this.listPanel = this.makeListPanel()
 
     if (wasMinimized) this.markers.setVisible(false)
@@ -407,6 +432,7 @@ export class Instruckt {
       this.attachAnnotateListeners()
     } else {
       this.detachAnnotateListeners()
+      this.highlightLocked = false
       this.highlight?.hide()
       if (this.rafId !== null) { cancelAnimationFrame(this.rafId); this.rafId = null }
     }
@@ -437,6 +463,7 @@ export class Instruckt {
 
   /** Block mousedown/pointerdown in annotation mode so SPA frameworks can't navigate */
   private boundAnnotateBlock = (e: Event): void => {
+    if (e instanceof PointerEvent) this.lastPointerType = e.pointerType
     if (this.isInstruckt(e.target)) return
     e.preventDefault()
     e.stopPropagation()
@@ -452,6 +479,16 @@ export class Instruckt {
     e.stopPropagation()
     e.stopImmediatePropagation()
 
+    // No hover on a touch screen: the first tap only aims, so the user can check it before the note opens
+    const pointerType = (e as PointerEvent).pointerType || this.lastPointerType
+    if (pointerType === 'touch' || pointerType === 'pen') {
+      this.touchAim?.tap(target)
+      return
+    }
+    this.openNoteFor(target, e.clientX, e.clientY)
+  }
+
+  private openNoteFor(target: Element, x: number, y: number): void {
     const selectedText = window.getSelection()?.toString().trim() || undefined
     const elementPath = getElementSelector(target)
     const elementName = getElementName(target)
@@ -472,8 +509,8 @@ export class Instruckt {
         elementLabel,
         cssClasses,
         boundingBox,
-        x: e.clientX,
-        y: e.clientY,
+        x,
+        y,
         selectedText,
         nearbyText,
         framework: framework ?? undefined,
@@ -486,11 +523,13 @@ export class Instruckt {
   private showAnnotationPopup(pending: PendingAnnotation): void {
     this.popup?.showNew(pending, {
       onSubmit: (result) => {
+        this.touchAim?.done()
         this.highlightLocked = false
         this.highlight?.hide()
         this.submitAnnotation(pending, result.comment, result.screenshot)
       },
       onCancel: () => {
+        this.touchAim?.done()
         this.highlightLocked = false
         this.highlight?.hide()
       },
@@ -507,6 +546,7 @@ export class Instruckt {
     }
     // Use window capture to fire before framework handlers on document
     window.addEventListener('click', this.boundClick, true)
+    this.touchAim?.attach()
   }
 
   private detachAnnotateListeners(): void {
@@ -516,6 +556,7 @@ export class Instruckt {
       window.removeEventListener(evt, this.boundAnnotateBlock, true)
     }
     window.removeEventListener('click', this.boundClick, true)
+    this.touchAim?.detach()
   }
 
   private isInstruckt(el: EventTarget | null): boolean {
@@ -915,6 +956,7 @@ export class Instruckt {
     window.removeEventListener('resize', this.boundReposition)
     this.toolbar?.destroy()
     this.highlight?.destroy()
+    this.touchAim?.destroy()
     this.popup?.destroy()
     this.markers?.destroy()
     this.listPanel?.destroy()

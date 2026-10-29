@@ -6,6 +6,55 @@ body.ik-annotating * { cursor: crosshair !important; }
 body.ik-annotating [data-instruckt],
 body.ik-annotating [data-instruckt] * { cursor: default !important; }
 body.ik-annotating [data-instruckt] .ik-marker { cursor: pointer !important; }
+/* Touch screens: a hold aims, so it must not select text or open the system menu */
+@media (hover: none) {
+  body.ik-annotating,
+  body.ik-annotating * { -webkit-touch-callout: none !important; -webkit-user-select: none !important; user-select: none !important; }
+  body.ik-annotating [data-instruckt],
+  body.ik-annotating [data-instruckt] * { -webkit-user-select: auto !important; user-select: auto !important; }
+}
+`
+
+/** Touch aim: the ring above the finger and the bar under the aimed element */
+export const AIM_CSS = /* css */ `
+:host { all: initial; }
+[hidden] { display: none !important; }
+.ring {
+  position: fixed;
+  width: 28px; height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  border: 2px solid rgb(99,102,241);
+  background: rgba(99,102,241,0.15);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 2px 8px rgba(0,0,0,0.25);
+  pointer-events: none;
+}
+.ring::after {
+  content: '';
+  position: absolute; left: 50%; top: 50%;
+  width: 4px; height: 4px; margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: rgb(99,102,241);
+}
+.bar {
+  position: fixed;
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px;
+  border-radius: 12px;
+  background: #1e1b2e;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  pointer-events: auto;
+  touch-action: manipulation;
+  font: 600 14px/1 system-ui, -apple-system, sans-serif;
+}
+.bar button {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 36px; border: 0; border-radius: 8px;
+  font: inherit; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.x { width: 36px; background: rgba(255,255,255,0.1); color: #fff; }
+.add { padding: 0 14px; background: rgb(99,102,241); color: #fff; }
 `
 
 /** Toolbar shadow DOM styles — fully isolated */

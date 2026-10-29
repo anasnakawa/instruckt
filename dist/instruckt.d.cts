@@ -111,6 +111,9 @@ declare class Instruckt {
     private popup;
     private markers;
     private listPanel;
+    private touchAim;
+    /** The kind of pointer behind the last press; a touch tap aims before it opens a note */
+    private lastPointerType;
     private annotations;
     private isAnnotating;
     private rafId;
@@ -123,6 +126,7 @@ declare class Instruckt {
     private boundReposition;
     constructor(config: InstrucktConfig);
     private init;
+    private makeTouchAim;
     private makeToolbarCallbacks;
     private makeListPanel;
     private setListOpen;
@@ -154,6 +158,7 @@ declare class Instruckt {
     /** Block mousedown/pointerdown in annotation mode so SPA frameworks can't navigate */
     private boundAnnotateBlock;
     private boundClick;
+    private openNoteFor;
     private showAnnotationPopup;
     private attachAnnotateListeners;
     private detachAnnotateListeners;

@@ -99,6 +99,60 @@ var GLOBAL_CSS = (
   `
 body.ik-annotating,
 body.ik-annotating * { cursor: crosshair !important; }
+/* Our own UI keeps normal cursors; the crosshair is only for picking page elements */
+body.ik-annotating [data-instruckt],
+body.ik-annotating [data-instruckt] * { cursor: default !important; }
+body.ik-annotating [data-instruckt] .ik-marker { cursor: pointer !important; }
+/* Touch screens: a hold aims, so it must not select text or open the system menu */
+@media (hover: none) {
+  body.ik-annotating,
+  body.ik-annotating * { -webkit-touch-callout: none !important; -webkit-user-select: none !important; user-select: none !important; }
+  body.ik-annotating [data-instruckt],
+  body.ik-annotating [data-instruckt] * { -webkit-user-select: auto !important; user-select: auto !important; }
+}
+`
+);
+var AIM_CSS = (
+  /* css */
+  `
+:host { all: initial; }
+[hidden] { display: none !important; }
+.ring {
+  position: fixed;
+  width: 28px; height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 50%;
+  border: 2px solid rgb(99,102,241);
+  background: rgba(99,102,241,0.15);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.9), 0 2px 8px rgba(0,0,0,0.25);
+  pointer-events: none;
+}
+.ring::after {
+  content: '';
+  position: absolute; left: 50%; top: 50%;
+  width: 4px; height: 4px; margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: rgb(99,102,241);
+}
+.bar {
+  position: fixed;
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px;
+  border-radius: 12px;
+  background: #1e1b2e;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  pointer-events: auto;
+  touch-action: manipulation;
+  font: 600 14px/1 system-ui, -apple-system, sans-serif;
+}
+.bar button {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 36px; border: 0; border-radius: 8px;
+  font: inherit; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.x { width: 36px; background: rgba(255,255,255,0.1); color: #fff; }
+.add { padding: 0 14px; background: rgb(99,102,241); color: #fff; }
 `
 );
 var TOOLBAR_CSS = (
@@ -200,6 +254,8 @@ var TOOLBAR_CSS = (
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 .btn[data-tooltip]:hover::before { opacity: 1; }
+/* No hover on touch screens: a tapped button would keep its tooltip up */
+@media (hover: none) { .btn[data-tooltip]::before { display: none; } }
 .btn.active { background: var(--ik-accent); color: #fff; }
 .btn.active:hover { background: var(--ik-accent-h); }
 
@@ -278,7 +334,8 @@ var TOOLBAR_CSS = (
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 .fab:hover { color: var(--ik-accent); transform: scale(1.1); }
-.fab { position: relative; }
+.fab { position: relative; touch-action: none; }
+@media (pointer: coarse) { .fab { width: 40px; height: 40px; } }
 
 .fab-badge {
   position: absolute;
@@ -523,6 +580,14 @@ var MARKER_CSS = (
   100% { box-shadow: 0 0 0 18px transparent; transform: scale(1); }
 }
 .ik-marker.ik-pulse { animation: ik-pulse .8s ease-out 2; }
+.ik-has-hover .ik-marker:not(.ik-hover) { opacity: .3; }
+.ik-marker.ik-hover {
+  transform: scale(1.45);
+  z-index: 1;
+  outline: 3px solid color-mix(in srgb, var(--ik-marker-default, #6366f1) 35%, transparent);
+  outline-offset: 2px;
+}
+.ik-marker { transition: transform .15s ease, opacity .15s ease; }
 .ik-marker.dismissed { background: var(--ik-marker-dismissed, #71717a); box-shadow: 0 2px 8px rgba(0,0,0,.2); }
 `
 );
@@ -570,6 +635,7 @@ var LIST_CSS = (
 }
 
 .panel {
+  cursor: default;
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 32px);
@@ -585,7 +651,11 @@ var LIST_CSS = (
 }
 @keyframes ik-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-.head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px 14px; }
+.head {
+  display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px 14px;
+  cursor: grab; user-select: none; touch-action: none;
+}
+.head:active { cursor: grabbing; }
 .title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
 .count {
   font-size: 11px; font-weight: 700; color: #fff; background: var(--ik-accent);
@@ -660,6 +730,7 @@ input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var
 .num.shot { background: var(--ik-marker-screenshot, #22c55e); }
 
 .main { flex: 1; min-width: 0; }
+.comment { cursor: text; user-select: text; }
 .comment {
   white-space: pre-wrap; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
@@ -716,6 +787,9 @@ var _Toolbar = class _Toolbar {
     this.totalCount = 0;
     this.dragging = false;
     this.dragOffset = { x: 0, y: 0 };
+    this.dragStart = { x: 0, y: 0 };
+    /** Set when a press on the round button turned into a drag, so it does not also open the toolbar */
+    this.dragMoved = false;
     this.keys = keys != null ? keys : {};
     this.tools = tools != null ? tools : {};
     this.build();
@@ -813,6 +887,7 @@ var _Toolbar = class _Toolbar {
     this.fab.style.display = "none";
     this.fab.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (this.dragMoved) return;
       this.setMinimized(false);
     });
     this.shadow.appendChild(this.fab);
@@ -823,6 +898,30 @@ var _Toolbar = class _Toolbar {
     this.loadSavedPosition();
     const root = (_e = document.getElementById("instruckt-root")) != null ? _e : document.body;
     root.appendChild(this.host);
+    if (this.startMinimized()) this.minimize();
+    this.keepOnScreen();
+    window.addEventListener("resize", () => this.keepOnScreen(), { passive: true });
+  }
+  /** The last choice, or minimized on a small screen, where the open toolbar covers the page's own controls */
+  startMinimized() {
+    try {
+      const saved = localStorage.getItem(_Toolbar.MINIMIZED_KEY);
+      if (saved !== null) return saved === "1";
+    } catch (e) {
+    }
+    return window.matchMedia("(max-width: 639px), (max-height: 499px)").matches;
+  }
+  /** A position saved on a wider screen can be off this one: pull it back into view */
+  keepOnScreen() {
+    const r = this.host.getBoundingClientRect();
+    if (r.width === 0) return;
+    const m = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (r.left >= m && r.top >= m && r.right <= vw - m && r.bottom <= vh - m) return;
+    const left = Math.max(m, Math.min(r.left, vw - r.width - m));
+    const top = Math.max(m, Math.min(r.top, vh - r.height - m));
+    Object.assign(this.host.style, { left: `${left}px`, bottom: `${vh - top - r.height}px`, top: "auto", right: "auto" });
   }
   /** Swap the icon for a check mark for a moment; badges are kept */
   flashDone(btn, icon) {
@@ -874,17 +973,23 @@ var _Toolbar = class _Toolbar {
     } catch (e) {
     }
   }
+  /** Drag by mouse, pen or touch: the toolbar by its handle or empty space, the round button anywhere */
   setupDrag() {
-    this.shadow.addEventListener("mousedown", (evt) => {
+    this.shadow.addEventListener("pointerdown", (evt) => {
       const e = evt;
-      if (e.target.closest(".btn") || e.target.closest(".fab")) return;
+      const target = e.target;
+      if (target.closest(".btn")) return;
       this.dragging = true;
+      this.dragMoved = false;
       const rect = this.host.getBoundingClientRect();
       this.dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-      e.preventDefault();
+      this.dragStart = { x: e.clientX, y: e.clientY };
+      if (!target.closest(".fab")) e.preventDefault();
     });
-    document.addEventListener("mousemove", (e) => {
+    document.addEventListener("pointermove", (e) => {
       if (!this.dragging) return;
+      if (!this.dragMoved && Math.hypot(e.clientX - this.dragStart.x, e.clientY - this.dragStart.y) < 5) return;
+      this.dragMoved = true;
       Object.assign(this.host.style, {
         left: `${e.clientX - this.dragOffset.x}px`,
         bottom: `${window.innerHeight - (e.clientY - this.dragOffset.y) - this.host.offsetHeight}px`,
@@ -892,18 +997,32 @@ var _Toolbar = class _Toolbar {
         right: "auto"
       });
     });
-    document.addEventListener("mouseup", () => {
-      if (this.dragging) this.savePosition();
+    const end = () => {
+      if (!this.dragging) return;
       this.dragging = false;
-    });
+      if (this.dragMoved) {
+        this.keepOnScreen();
+        this.savePosition();
+        setTimeout(() => {
+          this.dragMoved = false;
+        }, 0);
+      }
+    };
+    document.addEventListener("pointerup", end);
+    document.addEventListener("pointercancel", end);
   }
   setMinimized(min) {
     var _a2, _b;
     this.minimized = min;
+    try {
+      localStorage.setItem(_Toolbar.MINIMIZED_KEY, min ? "1" : "0");
+    } catch (e) {
+    }
     this.toolbarEl.style.display = min ? "none" : "";
     this.fab.style.display = min ? "" : "none";
     this.updateFabBadge();
     (_b = (_a2 = this.callbacks).onMinimize) == null ? void 0 : _b.call(_a2, min);
+    requestAnimationFrame(() => this.keepOnScreen());
   }
   updateFabBadge() {
     var _a2;
@@ -938,9 +1057,9 @@ var _Toolbar = class _Toolbar {
     this.listActive = active;
     this.listBtn.classList.toggle("active", active);
   }
-  /** Where the toolbar is on screen, so the list panel can sit beside it */
-  getRect() {
-    return this.host.getBoundingClientRect();
+  /** Where the toolbar and its list button are, so the list panel opens beside the button */
+  getListAnchor() {
+    return { bar: this.host.getBoundingClientRect(), button: this.listBtn.getBoundingClientRect() };
   }
   // Keep for compatibility — resolves visual mode from instruckt.ts
   setMode(mode) {
@@ -979,6 +1098,7 @@ var _Toolbar = class _Toolbar {
     document.body.classList.remove("ik-annotating");
   }
 };
+_Toolbar.MINIMIZED_KEY = "instruckt:toolbar-min";
 _Toolbar.POSITION_KEY = "instruckt:toolbar-pos";
 var Toolbar = _Toolbar;
 
@@ -999,10 +1119,26 @@ var ElementHighlight = class {
       display: "none"
     });
     this.el.setAttribute("data-instruckt", "highlight");
+    this.label = document.createElement("div");
+    Object.assign(this.label.style, {
+      position: "absolute",
+      left: "-2px",
+      maxWidth: "min(320px, 90vw)",
+      padding: "2px 6px",
+      borderRadius: "4px",
+      background: "rgb(99,102,241)",
+      color: "#fff",
+      font: "500 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      display: "none"
+    });
+    this.el.appendChild(this.label);
     const root = (_a2 = document.getElementById("instruckt-root")) != null ? _a2 : document.body;
     root.appendChild(this.el);
   }
-  show(el) {
+  show(el, label) {
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) {
       this.hide();
@@ -1015,6 +1151,13 @@ var ElementHighlight = class {
       width: `${rect.width}px`,
       height: `${rect.height}px`
     });
+    if (label) {
+      this.label.textContent = label;
+      const above = rect.top > 22;
+      Object.assign(this.label.style, { display: "block", top: above ? "-22px" : "2px", left: above ? "-2px" : "2px" });
+    } else {
+      this.label.style.display = "none";
+    }
   }
   hide() {
     this.el.style.display = "none";
@@ -2711,7 +2854,8 @@ function selectRegion() {
       inset: "0",
       zIndex: "2147483647",
       cursor: "crosshair",
-      background: "rgba(0,0,0,0.1)"
+      background: "rgba(0,0,0,0.1)",
+      touchAction: "none"
     });
     overlay.setAttribute("data-instruckt", "region-select");
     const box = document.createElement("div");
@@ -2726,6 +2870,7 @@ function selectRegion() {
     overlay.appendChild(box);
     let startX = 0, startY = 0, dragging = false;
     const onMouseDown = (e) => {
+      overlay.setPointerCapture(e.pointerId);
       startX = e.clientX;
       startY = e.clientY;
       dragging = true;
@@ -2772,9 +2917,13 @@ function selectRegion() {
       overlay.remove();
       document.removeEventListener("keydown", onKeyDown, true);
     };
-    overlay.addEventListener("mousedown", onMouseDown);
-    overlay.addEventListener("mousemove", onMouseMove);
-    overlay.addEventListener("mouseup", onMouseUp);
+    overlay.addEventListener("pointerdown", onMouseDown);
+    overlay.addEventListener("pointermove", onMouseMove);
+    overlay.addEventListener("pointerup", onMouseUp);
+    overlay.addEventListener("pointercancel", () => {
+      cleanup();
+      resolve(null);
+    });
     document.addEventListener("keydown", onKeyDown, true);
     document.body.appendChild(overlay);
   });
@@ -3065,6 +3214,13 @@ var AnnotationMarkers = class {
       marker.el.style.top = `${annotation.y - window.scrollY}px`;
     });
   }
+  /** Point at one marker (others fade), or clear with null */
+  setHover(annotationId) {
+    for (const { el, annotationId: id } of this.markers.values()) {
+      el.classList.toggle("ik-hover", id === annotationId);
+    }
+    this.container.classList.toggle("ik-has-hover", annotationId !== null && this.markers.has(annotationId));
+  }
   /** Briefly ring a marker so the eye finds it */
   pulse(annotationId) {
     var _a2;
@@ -3128,6 +3284,10 @@ var ListPanel = class {
     this.draft = "";
     this.confirmDelete = false;
     this.confirmTimer = null;
+    this.hoverId = null;
+    /** Where the user dragged the panel; null keeps it beside the button */
+    this.dragged = null;
+    this.drag = null;
     this.boundPosition = () => this.position();
   }
   isOpen() {
@@ -3152,6 +3312,16 @@ var ListPanel = class {
     panel.addEventListener("change", (e) => this.onChange(e));
     panel.addEventListener("input", (e) => this.onInput(e));
     panel.addEventListener("keydown", (e) => this.onKeydown(e));
+    panel.addEventListener("mouseover", (e) => this.onHover(e));
+    panel.addEventListener("mouseleave", () => this.setHover(null));
+    panel.addEventListener("pointerdown", (e) => this.onDragStart(e));
+    panel.addEventListener("pointermove", (e) => this.onDragMove(e));
+    panel.addEventListener("pointerup", () => {
+      this.drag = null;
+    });
+    panel.addEventListener("pointercancel", () => {
+      this.drag = null;
+    });
     ((_a2 = document.getElementById("instruckt-root")) != null ? _a2 : document.body).appendChild(this.host);
     window.addEventListener("resize", this.boundPosition, { passive: true });
     this.render();
@@ -3163,12 +3333,17 @@ var ListPanel = class {
     this.host = null;
     this.shadow = null;
     this.editingId = null;
+    this.dragged = null;
+    this.drag = null;
+    this.setHover(null);
     this.resetConfirm();
     window.removeEventListener("resize", this.boundPosition);
   }
   /** Re-render after the annotations changed */
   refresh() {
-    if (this.host) this.render();
+    if (!this.host) return;
+    this.render();
+    this.position();
   }
   destroy() {
     this.close();
@@ -3232,7 +3407,7 @@ var ListPanel = class {
     }).join("")}
         </div>`).join("");
     panel.innerHTML = `
-      <div class="head">
+      <div class="head" title="Drag to move">
         <div class="title">Notes <span class="count">${all.length}</span></div>
         <button class="icon-btn" data-action="close" title="Close (Esc)" aria-label="Close">${ICONS2.close}</button>
       </div>
@@ -3290,27 +3465,67 @@ var ListPanel = class {
   position() {
     if (!this.host) return;
     const vw = window.innerWidth;
-    const gap = 8;
+    const vh = window.innerHeight;
+    const gap = 10;
     const margin = 16;
+    const height = this.host.offsetHeight;
+    if (this.dragged) {
+      const width2 = this.host.offsetWidth;
+      const left2 = Math.max(margin - width2 + 80, Math.min(this.dragged.left, vw - 80));
+      const top2 = Math.max(0, Math.min(this.dragged.top, vh - 40));
+      Object.assign(this.host.style, { left: `${left2}px`, top: `${top2}px`, right: "auto" });
+      return;
+    }
     const r = this.cb.anchor();
-    const style = { position: "fixed", zIndex: "2147483646", top: `${margin}px`, left: "auto", right: "auto" };
-    let width = 380;
-    if (r && r.left + r.width / 2 > vw / 2) {
-      const room = r.left - gap - margin;
-      width = Math.min(width, room);
-      style.right = `${vw - r.left + gap}px`;
-    } else if (r) {
-      const room = vw - r.right - gap - margin;
-      width = Math.min(width, room);
-      style.left = `${r.right + gap}px`;
+    let width = Math.min(380, vw - 2 * margin);
+    let left = vw - margin - width;
+    let top = margin;
+    if (r) {
+      const roomLeft = r.bar.left - gap - margin;
+      const roomRight = vw - r.bar.right - gap - margin;
+      if (roomLeft >= 280 && roomLeft >= roomRight) {
+        width = Math.min(380, roomLeft);
+        left = r.bar.left - gap - width;
+      } else if (roomRight >= 280) {
+        width = Math.min(380, roomRight);
+        left = r.bar.right + gap;
+      }
+      top = Math.max(margin, Math.min(r.button.top - 10, vh - margin - height));
     }
-    if (!r || width < 280) {
-      width = Math.min(380, vw - 2 * margin);
-      style.right = `${margin}px`;
-      style.left = "auto";
-    }
-    style.width = `${width}px`;
-    Object.assign(this.host.style, style);
+    Object.assign(this.host.style, {
+      position: "fixed",
+      zIndex: "2147483646",
+      width: `${width}px`,
+      left: `${left}px`,
+      top: `${top}px`,
+      right: "auto"
+    });
+  }
+  // ── Drag (by the header) ────────────────────────────────────
+  onDragStart(e) {
+    const target = e.target;
+    if (!target.closest(".head") || target.closest("button") || !this.host) return;
+    const rect = this.host.getBoundingClientRect();
+    this.drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+    target.closest(".head").setPointerCapture(e.pointerId);
+    e.preventDefault();
+  }
+  onDragMove(e) {
+    if (!this.drag) return;
+    this.dragged = { left: e.clientX - this.drag.dx, top: e.clientY - this.drag.dy };
+    this.position();
+  }
+  // ── Hover: point at the note's marker ───────────────────────
+  onHover(e) {
+    var _a2;
+    const item = e.target.closest(".item");
+    this.setHover((_a2 = item == null ? void 0 : item.dataset.id) != null ? _a2 : null);
+  }
+  setHover(id) {
+    var _a2;
+    if (id === this.hoverId) return;
+    this.hoverId = id;
+    this.cb.onHover((_a2 = this.byId(id != null ? id : void 0)) != null ? _a2 : null);
   }
   // ── Events ──────────────────────────────────────────────────
   async onClick(e) {
@@ -3430,6 +3645,191 @@ var ListPanel = class {
       btn.innerHTML = before;
       btn.classList.remove("done");
     }, 1200);
+  }
+};
+
+// src/ui/touch-aim.ts
+var HOLD_MS = 280;
+var LIFT = 48;
+var MOVE_TOLERANCE = 8;
+var ICON_X = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
+var TouchAim = class {
+  constructor(cb) {
+    this.cb = cb;
+    this.aimed = null;
+    this.holdTimer = null;
+    this.holding = false;
+    this.start = { x: 0, y: 0 };
+    this.suppressUntil = 0;
+    this.raf = 0;
+    // ── Hold and drag ───────────────────────────────────────────
+    this.onTouchStart = (e) => {
+      if (e.touches.length !== 1 || this.cb.isOurs(e.target)) {
+        this.cancelHold();
+        return;
+      }
+      const t = e.touches[0];
+      this.start = { x: t.clientX, y: t.clientY };
+      this.cancelHold();
+      this.holdTimer = setTimeout(() => {
+        this.holdTimer = null;
+        this.holding = true;
+        this.hideBar();
+        this.moveRing(this.start.x, this.start.y);
+      }, HOLD_MS);
+    };
+    this.onTouchMove = (e) => {
+      const t = e.touches[0];
+      if (!t) return;
+      if (this.holding) {
+        e.preventDefault();
+        this.moveRing(t.clientX, t.clientY);
+        return;
+      }
+      if (this.holdTimer && Math.hypot(t.clientX - this.start.x, t.clientY - this.start.y) > MOVE_TOLERANCE) this.cancelHold();
+    };
+    this.onTouchEnd = () => {
+      if (this.holdTimer) this.cancelHold();
+      if (!this.holding) return;
+      this.holding = false;
+      this.ring.hidden = true;
+      this.suppressUntil = Date.now() + 450;
+      if (this.aimed) this.placeBar();
+    };
+    this.onContextMenu = (e) => {
+      if (this.holding || this.holdTimer || this.aimed) e.preventDefault();
+    };
+    // ── Bar ─────────────────────────────────────────────────────
+    this.onScroll = () => {
+      if (!this.aimed) return;
+      cancelAnimationFrame(this.raf);
+      this.raf = requestAnimationFrame(() => {
+        if (!this.aimed) return;
+        this.cb.highlight(this.aimed);
+        if (!this.bar.hidden) this.placeBar();
+      });
+    };
+    var _a2;
+    this.host = document.createElement("div");
+    this.host.setAttribute("data-instruckt", "aim");
+    Object.assign(this.host.style, { position: "fixed", inset: "0", zIndex: "2147483646", pointerEvents: "none" });
+    const shadow = this.host.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = AIM_CSS;
+    shadow.appendChild(style);
+    this.bar = document.createElement("div");
+    this.bar.className = "bar";
+    this.bar.hidden = true;
+    this.bar.innerHTML = `<button type="button" class="x" aria-label="Stop aiming">${ICON_X}</button><button type="button" class="add">Add note</button>`;
+    this.bar.querySelector(".x").addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.clear();
+    });
+    this.bar.querySelector(".add").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const el = this.aimed;
+      if (!el) return;
+      this.hideBar();
+      this.cb.onAdd(el);
+    });
+    shadow.appendChild(this.bar);
+    this.ring = document.createElement("div");
+    this.ring.className = "ring";
+    this.ring.hidden = true;
+    shadow.appendChild(this.ring);
+    for (const evt of ["click", "mousedown", "pointerdown", "touchstart"]) {
+      this.host.addEventListener(evt, (e) => e.stopPropagation());
+    }
+    ;
+    ((_a2 = document.getElementById("instruckt-root")) != null ? _a2 : document.body).appendChild(this.host);
+  }
+  attach() {
+    window.addEventListener("touchstart", this.onTouchStart, { capture: true, passive: true });
+    window.addEventListener("touchmove", this.onTouchMove, { capture: true, passive: false });
+    window.addEventListener("touchend", this.onTouchEnd, true);
+    window.addEventListener("touchcancel", this.onTouchEnd, true);
+    window.addEventListener("contextmenu", this.onContextMenu, true);
+    window.addEventListener("scroll", this.onScroll, { passive: true });
+    window.addEventListener("resize", this.onScroll, { passive: true });
+  }
+  detach() {
+    window.removeEventListener("touchstart", this.onTouchStart, true);
+    window.removeEventListener("touchmove", this.onTouchMove, true);
+    window.removeEventListener("touchend", this.onTouchEnd, true);
+    window.removeEventListener("touchcancel", this.onTouchEnd, true);
+    window.removeEventListener("contextmenu", this.onContextMenu, true);
+    window.removeEventListener("scroll", this.onScroll);
+    window.removeEventListener("resize", this.onScroll);
+    this.cancelHold();
+    this.clear();
+  }
+  getAimed() {
+    return this.aimed;
+  }
+  /** A tap: aim at it, or open the note when it is inside what is already aimed */
+  tap(target) {
+    if (Date.now() < this.suppressUntil) return;
+    if (this.aimed && this.aimed.contains(target)) {
+      const el = this.aimed;
+      this.hideBar();
+      this.cb.onAdd(el);
+      return;
+    }
+    this.aim(target);
+  }
+  aim(el) {
+    this.aimed = el;
+    this.cb.highlight(el);
+    this.placeBar();
+  }
+  clear() {
+    this.aimed = null;
+    this.hideBar();
+    this.cb.highlight(null);
+  }
+  /** After the note popup closes, the aim is done */
+  done() {
+    this.aimed = null;
+    this.hideBar();
+  }
+  destroy() {
+    this.detach();
+    this.host.remove();
+  }
+  cancelHold() {
+    if (this.holdTimer) clearTimeout(this.holdTimer);
+    this.holdTimer = null;
+  }
+  moveRing(x, y) {
+    const ry = y - LIFT;
+    this.ring.hidden = false;
+    this.ring.style.left = `${x}px`;
+    this.ring.style.top = `${ry}px`;
+    const el = document.elementFromPoint(x, ry);
+    if (!el || this.cb.isOurs(el) || el === document.documentElement || el === document.body) return;
+    if (el !== this.aimed) {
+      this.aimed = el;
+      this.cb.highlight(el);
+    }
+  }
+  placeBar() {
+    if (!this.aimed || this.holding) return;
+    this.bar.hidden = false;
+    const r = this.aimed.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const m = 8;
+    const bw = this.bar.offsetWidth;
+    const bh = this.bar.offsetHeight;
+    let top = r.bottom + 10;
+    if (top + bh > vh - m) top = r.top - bh - 34;
+    if (top < m) top = vh - bh - 16;
+    const left = Math.max(m, Math.min(r.left + r.width / 2 - bw / 2, vw - bw - m));
+    this.bar.style.left = `${left}px`;
+    this.bar.style.top = `${top}px`;
+  }
+  hideBar() {
+    this.bar.hidden = true;
   }
 };
 
@@ -3732,6 +4132,14 @@ function getContext5(_el) {
 }
 
 // src/instruckt.ts
+function newId() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = b[6] & 15 | 64;
+  b[8] = b[8] & 63 | 128;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 function pageKey() {
   return window.location.pathname;
 }
@@ -3742,6 +4150,9 @@ var _Instruckt = class _Instruckt {
     this.popup = null;
     this.markers = null;
     this.listPanel = null;
+    this.touchAim = null;
+    /** The kind of pointer behind the last press; a touch tap aims before it opens a note */
+    this.lastPointerType = "mouse";
     this.annotations = [];
     this.isAnnotating = false;
     this.rafId = null;
@@ -3778,43 +4189,25 @@ var _Instruckt = class _Instruckt {
     };
     /** Block mousedown/pointerdown in annotation mode so SPA frameworks can't navigate */
     this.boundAnnotateBlock = (e) => {
+      if (e instanceof PointerEvent) this.lastPointerType = e.pointerType;
       if (this.isInstruckt(e.target)) return;
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
     };
     this.boundClick = (e) => {
-      var _a2, _b;
+      var _a2;
       const target = e.target;
       if (this.isInstruckt(target)) return;
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      const selectedText = ((_a2 = window.getSelection()) == null ? void 0 : _a2.toString().trim()) || void 0;
-      const elementPath = getElementSelector(target);
-      const elementName = getElementName(target);
-      const elementLabel = getElementLabel(target);
-      const cssClasses = getCssClasses(target);
-      const nearbyText = getNearbyText(target) || void 0;
-      const boundingBox = getPageBoundingBox(target);
-      (_b = this.highlight) == null ? void 0 : _b.show(target);
-      this.highlightLocked = true;
-      this.detectFramework(target).then((framework) => {
-        const pending = {
-          element: target,
-          elementPath,
-          elementName,
-          elementLabel,
-          cssClasses,
-          boundingBox,
-          x: e.clientX,
-          y: e.clientY,
-          selectedText,
-          nearbyText,
-          framework: framework != null ? framework : void 0
-        };
-        this.showAnnotationPopup(pending);
-      });
+      const pointerType = e.pointerType || this.lastPointerType;
+      if (pointerType === "touch" || pointerType === "pen") {
+        (_a2 = this.touchAim) == null ? void 0 : _a2.tap(target);
+        return;
+      }
+      this.openNoteFor(target, e.clientX, e.clientY);
     };
     this.config = __spreadValues({
       adapters: ["livewire", "vue", "svelte", "react", "blade"],
@@ -3848,9 +4241,11 @@ var _Instruckt = class _Instruckt {
       onMinimize: (min) => this.onMinimize(min)
     }, this.config.keys, this.config.tools);
     this.highlight = new ElementHighlight();
+    this.touchAim = this.makeTouchAim();
     this.popup = new AnnotationPopup();
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation));
     this.listPanel = this.makeListPanel();
+    if (this.toolbar.isMinimized()) this.markers.setVisible(false);
     document.addEventListener("keydown", this.boundKeydown);
     window.addEventListener("scroll", this.boundReposition, { passive: true });
     window.addEventListener("resize", this.boundReposition, { passive: true });
@@ -3860,6 +4255,25 @@ var _Instruckt = class _Instruckt {
       setTimeout(() => this.reattach(), 0);
     });
     this.loadAnnotations();
+  }
+  makeTouchAim() {
+    return new TouchAim({
+      highlight: (el) => {
+        var _a2, _b;
+        if (el) {
+          (_a2 = this.highlight) == null ? void 0 : _a2.show(el, getElementLabel(el));
+          this.highlightLocked = true;
+        } else {
+          (_b = this.highlight) == null ? void 0 : _b.hide();
+          this.highlightLocked = false;
+        }
+      },
+      isOurs: (el) => this.isInstruckt(el),
+      onAdd: (el) => {
+        const r = el.getBoundingClientRect();
+        this.openNoteFor(el, r.left + r.width / 2, r.top + r.height / 2);
+      }
+    });
   }
   makeToolbarCallbacks() {
     return {
@@ -3883,7 +4297,11 @@ var _Instruckt = class _Instruckt {
       screenshotSrc: (a) => screenshotUrl(a.screenshot, this.config.endpoint),
       anchor: () => {
         var _a2, _b;
-        return (_b = (_a2 = this.toolbar) == null ? void 0 : _a2.getRect()) != null ? _b : null;
+        return (_b = (_a2 = this.toolbar) == null ? void 0 : _a2.getListAnchor()) != null ? _b : null;
+      },
+      onHover: (a) => {
+        var _a2, _b;
+        return (_b = this.markers) == null ? void 0 : _b.setHover((_a2 = a == null ? void 0 : a.id) != null ? _a2 : null);
       },
       onCopy: (list) => this.copyAnnotations(list, true),
       onDelete: (list) => this.deleteAnnotations(list),
@@ -3929,6 +4347,7 @@ var _Instruckt = class _Instruckt {
     if (wasMinimized) this.toolbar.minimize();
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation));
     this.highlight = new ElementHighlight();
+    this.touchAim = this.makeTouchAim();
     this.listPanel = this.makeListPanel();
     if (wasMinimized) this.markers.setVisible(false);
     const existing = document.getElementById("instruckt-global");
@@ -4123,6 +4542,7 @@ var _Instruckt = class _Instruckt {
       this.attachAnnotateListeners();
     } else {
       this.detachAnnotateListeners();
+      this.highlightLocked = false;
       (_b = this.highlight) == null ? void 0 : _b.hide();
       if (this.rafId !== null) {
         cancelAnimationFrame(this.rafId);
@@ -4130,37 +4550,71 @@ var _Instruckt = class _Instruckt {
       }
     }
   }
+  openNoteFor(target, x, y) {
+    var _a2, _b;
+    const selectedText = ((_a2 = window.getSelection()) == null ? void 0 : _a2.toString().trim()) || void 0;
+    const elementPath = getElementSelector(target);
+    const elementName = getElementName(target);
+    const elementLabel = getElementLabel(target);
+    const cssClasses = getCssClasses(target);
+    const nearbyText = getNearbyText(target) || void 0;
+    const boundingBox = getPageBoundingBox(target);
+    (_b = this.highlight) == null ? void 0 : _b.show(target);
+    this.highlightLocked = true;
+    this.detectFramework(target).then((framework) => {
+      const pending = {
+        element: target,
+        elementPath,
+        elementName,
+        elementLabel,
+        cssClasses,
+        boundingBox,
+        x,
+        y,
+        selectedText,
+        nearbyText,
+        framework: framework != null ? framework : void 0
+      };
+      this.showAnnotationPopup(pending);
+    });
+  }
   showAnnotationPopup(pending) {
     var _a2;
     (_a2 = this.popup) == null ? void 0 : _a2.showNew(pending, {
       onSubmit: (result) => {
-        var _a3;
+        var _a3, _b;
+        (_a3 = this.touchAim) == null ? void 0 : _a3.done();
         this.highlightLocked = false;
-        (_a3 = this.highlight) == null ? void 0 : _a3.hide();
+        (_b = this.highlight) == null ? void 0 : _b.hide();
         this.submitAnnotation(pending, result.comment, result.screenshot);
       },
       onCancel: () => {
-        var _a3;
+        var _a3, _b;
+        (_a3 = this.touchAim) == null ? void 0 : _a3.done();
         this.highlightLocked = false;
-        (_a3 = this.highlight) == null ? void 0 : _a3.hide();
+        (_b = this.highlight) == null ? void 0 : _b.hide();
       }
     });
   }
   attachAnnotateListeners() {
+    var _a2;
     document.addEventListener("mousemove", this.boundMouseMove);
     document.addEventListener("mouseleave", this.boundMouseLeave);
     for (const evt of ["mousedown", "pointerdown"]) {
       window.addEventListener(evt, this.boundAnnotateBlock, true);
     }
     window.addEventListener("click", this.boundClick, true);
+    (_a2 = this.touchAim) == null ? void 0 : _a2.attach();
   }
   detachAnnotateListeners() {
+    var _a2;
     document.removeEventListener("mousemove", this.boundMouseMove);
     document.removeEventListener("mouseleave", this.boundMouseLeave);
     for (const evt of ["mousedown", "pointerdown"]) {
       window.removeEventListener(evt, this.boundAnnotateBlock, true);
     }
     window.removeEventListener("click", this.boundClick, true);
+    (_a2 = this.touchAim) == null ? void 0 : _a2.detach();
   }
   isInstruckt(el) {
     if (!el || !(el instanceof Element)) return false;
@@ -4292,7 +4746,7 @@ var _Instruckt = class _Instruckt {
       annotation = await this.api.addAnnotation(payload);
     } catch (e) {
       annotation = __spreadProps(__spreadValues({}, payload), {
-        id: crypto.randomUUID(),
+        id: newId(),
         status: "pending",
         createdAt: (/* @__PURE__ */ new Date()).toISOString()
       });
@@ -4395,9 +4849,12 @@ var _Instruckt = class _Instruckt {
     try {
       const el = document.createElement("textarea");
       el.value = md;
-      el.style.cssText = "position:fixed;left:-9999px";
+      el.readOnly = true;
+      el.style.cssText = "position:fixed;left:-9999px;top:0;font-size:16px";
+      el.setAttribute("data-instruckt", "copy");
       document.body.appendChild(el);
       el.select();
+      el.setSelectionRange(0, md.length);
       const ok = document.execCommand("copy");
       el.remove();
       return ok;
@@ -4492,16 +4949,17 @@ No open annotations.`;
     return [...this.annotations];
   }
   destroy() {
-    var _a2, _b, _c, _d, _e;
+    var _a2, _b, _c, _d, _e, _f;
     this.setAnnotating(false);
     document.removeEventListener("keydown", this.boundKeydown);
     window.removeEventListener("scroll", this.boundReposition);
     window.removeEventListener("resize", this.boundReposition);
     (_a2 = this.toolbar) == null ? void 0 : _a2.destroy();
     (_b = this.highlight) == null ? void 0 : _b.destroy();
-    (_c = this.popup) == null ? void 0 : _c.destroy();
-    (_d = this.markers) == null ? void 0 : _d.destroy();
-    (_e = this.listPanel) == null ? void 0 : _e.destroy();
+    (_c = this.touchAim) == null ? void 0 : _c.destroy();
+    (_d = this.popup) == null ? void 0 : _d.destroy();
+    (_e = this.markers) == null ? void 0 : _e.destroy();
+    (_f = this.listPanel) == null ? void 0 : _f.destroy();
     if (this.rafId !== null) cancelAnimationFrame(this.rafId);
     if (this.pollTimer !== null) clearInterval(this.pollTimer);
   }
