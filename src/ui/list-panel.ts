@@ -7,8 +7,10 @@ interface ListPanelCallbacks {
   currentPage: () => string
   pageOf: (a: Annotation) => string
   screenshotSrc: (a: Annotation) => string | null
-  /** Toolbar position, so the panel opens beside it */
-  anchor: () => DOMRect | null
+  /** Toolbar and list button positions, so the panel opens beside the button */
+  anchor: () => { bar: DOMRect; button: DOMRect } | null
+  /** Pointer is over a note (or left them all, with null) */
+  onHover: (a: Annotation | null) => void
   onCopy: (list: Annotation[]) => Promise<boolean>
   onDelete: (list: Annotation[]) => Promise<void>
   onSave: (a: Annotation, comment: string) => Promise<void>
@@ -49,6 +51,10 @@ export class ListPanel {
   private draft = ''
   private confirmDelete = false
   private confirmTimer: ReturnType<typeof setTimeout> | null = null
+  private hoverId: string | null = null
+  /** Where the user dragged the panel; null keeps it beside the button */
+  private dragged: { left: number; top: number } | null = null
+  private drag: { dx: number; dy: number } | null = null
   private boundPosition = (): void => this.position()
 
   constructor(private readonly cb: ListPanelCallbacks) {}
@@ -76,6 +82,12 @@ export class ListPanel {
     panel.addEventListener('change', (e) => this.onChange(e))
     panel.addEventListener('input', (e) => this.onInput(e))
     panel.addEventListener('keydown', (e) => this.onKeydown(e))
+    panel.addEventListener('mouseover', (e) => this.onHover(e))
+    panel.addEventListener('mouseleave', () => this.setHover(null))
+    panel.addEventListener('pointerdown', (e) => this.onDragStart(e))
+    panel.addEventListener('pointermove', (e) => this.onDragMove(e))
+    panel.addEventListener('pointerup', () => { this.drag = null })
+    panel.addEventListener('pointercancel', () => { this.drag = null })
     ;(document.getElementById('instruckt-root') ?? document.body).appendChild(this.host)
     window.addEventListener('resize', this.boundPosition, { passive: true })
     this.render()
@@ -88,13 +100,18 @@ export class ListPanel {
     this.host = null
     this.shadow = null
     this.editingId = null
+    this.dragged = null
+    this.drag = null
+    this.setHover(null)
     this.resetConfirm()
     window.removeEventListener('resize', this.boundPosition)
   }
 
   /** Re-render after the annotations changed */
   refresh(): void {
-    if (this.host) this.render()
+    if (!this.host) return
+    this.render()
+    this.position()
   }
 
   destroy(): void {
@@ -174,7 +191,7 @@ export class ListPanel {
         </div>`).join('')
 
     panel.innerHTML = `
-      <div class="head">
+      <div class="head" title="Drag to move">
         <div class="title">Notes <span class="count">${all.length}</span></div>
         <button class="icon-btn" data-action="close" title="Close (Esc)" aria-label="Close">${ICONS.close}</button>
       </div>
@@ -233,28 +250,71 @@ export class ListPanel {
   private position(): void {
     if (!this.host) return
     const vw = window.innerWidth
-    const gap = 8
+    const vh = window.innerHeight
+    const gap = 10
     const margin = 16
+    const height = this.host.offsetHeight
+
+    if (this.dragged) {
+      const width = this.host.offsetWidth
+      const left = Math.max(margin - width + 80, Math.min(this.dragged.left, vw - 80))
+      const top = Math.max(0, Math.min(this.dragged.top, vh - 40))
+      Object.assign(this.host.style, { left: `${left}px`, top: `${top}px`, right: 'auto' })
+      return
+    }
+
     const r = this.cb.anchor()
-    const style: Record<string, string> = { position: 'fixed', zIndex: '2147483646', top: `${margin}px`, left: 'auto', right: 'auto' }
-    let width = 380
-    if (r && r.left + r.width / 2 > vw / 2) {
-      const room = r.left - gap - margin
-      width = Math.min(width, room)
-      style.right = `${vw - r.left + gap}px`
-    } else if (r) {
-      const room = vw - r.right - gap - margin
-      width = Math.min(width, room)
-      style.left = `${r.right + gap}px`
+    let width = Math.min(380, vw - 2 * margin)
+    let left = vw - margin - width
+    let top = margin
+    if (r) {
+      // Beside the toolbar, on the side with room, level with the list button
+      const roomLeft = r.bar.left - gap - margin
+      const roomRight = vw - r.bar.right - gap - margin
+      if (roomLeft >= 280 && roomLeft >= roomRight) {
+        width = Math.min(380, roomLeft)
+        left = r.bar.left - gap - width
+      } else if (roomRight >= 280) {
+        width = Math.min(380, roomRight)
+        left = r.bar.right + gap
+      }
+      // Line the header up with the button, then keep the whole panel on screen
+      top = Math.max(margin, Math.min(r.button.top - 10, vh - margin - height))
     }
-    if (!r || width < 280) {
-      // Too narrow beside the toolbar: lay it over the right side instead
-      width = Math.min(380, vw - 2 * margin)
-      style.right = `${margin}px`
-      style.left = 'auto'
-    }
-    style.width = `${width}px`
-    Object.assign(this.host.style, style)
+    Object.assign(this.host.style, {
+      position: 'fixed', zIndex: '2147483646', width: `${width}px`,
+      left: `${left}px`, top: `${top}px`, right: 'auto',
+    })
+  }
+
+  // ── Drag (by the header) ────────────────────────────────────
+
+  private onDragStart(e: PointerEvent): void {
+    const target = e.target as Element
+    if (!target.closest('.head') || target.closest('button') || !this.host) return
+    const rect = this.host.getBoundingClientRect()
+    this.drag = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
+    ;(target.closest('.head') as HTMLElement).setPointerCapture(e.pointerId)
+    e.preventDefault()
+  }
+
+  private onDragMove(e: PointerEvent): void {
+    if (!this.drag) return
+    this.dragged = { left: e.clientX - this.drag.dx, top: e.clientY - this.drag.dy }
+    this.position()
+  }
+
+  // ── Hover: point at the note's marker ───────────────────────
+
+  private onHover(e: MouseEvent): void {
+    const item = (e.target as Element).closest<HTMLElement>('.item')
+    this.setHover(item?.dataset.id ?? null)
+  }
+
+  private setHover(id: string | null): void {
+    if (id === this.hoverId) return
+    this.hoverId = id
+    this.cb.onHover(this.byId(id ?? undefined) ?? null)
   }
 
   // ── Events ──────────────────────────────────────────────────

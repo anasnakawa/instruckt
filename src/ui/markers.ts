@@ -85,6 +85,14 @@ export class AnnotationMarkers {
     })
   }
 
+  /** Point at one marker (others fade), or clear with null */
+  setHover(annotationId: string | null): void {
+    for (const { el, annotationId: id } of this.markers.values()) {
+      el.classList.toggle('ik-hover', id === annotationId)
+    }
+    this.container.classList.toggle('ik-has-hover', annotationId !== null && this.markers.has(annotationId))
+  }
+
   /** Briefly ring a marker so the eye finds it */
   pulse(annotationId: string): void {
     const el = this.markers.get(annotationId)?.el

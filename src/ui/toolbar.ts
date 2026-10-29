@@ -304,9 +304,9 @@ export class Toolbar {
     this.listBtn.classList.toggle('active', active)
   }
 
-  /** Where the toolbar is on screen, so the list panel can sit beside it */
-  getRect(): DOMRect {
-    return this.host.getBoundingClientRect()
+  /** Where the toolbar and its list button are, so the list panel opens beside the button */
+  getListAnchor(): { bar: DOMRect; button: DOMRect } {
+    return { bar: this.host.getBoundingClientRect(), button: this.listBtn.getBoundingClientRect() }
   }
 
   // Keep for compatibility — resolves visual mode from instruckt.ts

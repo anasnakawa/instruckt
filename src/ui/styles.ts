@@ -2,6 +2,10 @@
 export const GLOBAL_CSS = /* css */ `
 body.ik-annotating,
 body.ik-annotating * { cursor: crosshair !important; }
+/* Our own UI keeps normal cursors; the crosshair is only for picking page elements */
+body.ik-annotating [data-instruckt],
+body.ik-annotating [data-instruckt] * { cursor: default !important; }
+body.ik-annotating [data-instruckt] .ik-marker { cursor: pointer !important; }
 `
 
 /** Toolbar shadow DOM styles — fully isolated */
@@ -423,6 +427,14 @@ export const MARKER_CSS = /* css */ `
   100% { box-shadow: 0 0 0 18px transparent; transform: scale(1); }
 }
 .ik-marker.ik-pulse { animation: ik-pulse .8s ease-out 2; }
+.ik-has-hover .ik-marker:not(.ik-hover) { opacity: .3; }
+.ik-marker.ik-hover {
+  transform: scale(1.45);
+  z-index: 1;
+  outline: 3px solid color-mix(in srgb, var(--ik-marker-default, #6366f1) 35%, transparent);
+  outline-offset: 2px;
+}
+.ik-marker { transition: transform .15s ease, opacity .15s ease; }
 .ik-marker.dismissed { background: var(--ik-marker-dismissed, #71717a); box-shadow: 0 2px 8px rgba(0,0,0,.2); }
 `
 
@@ -472,6 +484,7 @@ export const LIST_CSS = /* css */ `
 }
 
 .panel {
+  cursor: default;
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 32px);
@@ -487,7 +500,11 @@ export const LIST_CSS = /* css */ `
 }
 @keyframes ik-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
-.head { display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px 14px; }
+.head {
+  display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px 14px;
+  cursor: grab; user-select: none; touch-action: none;
+}
+.head:active { cursor: grabbing; }
 .title { font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
 .count {
   font-size: 11px; font-weight: 700; color: #fff; background: var(--ik-accent);
@@ -562,6 +579,7 @@ input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var
 .num.shot { background: var(--ik-marker-screenshot, #22c55e); }
 
 .main { flex: 1; min-width: 0; }
+.comment { cursor: text; user-select: text; }
 .comment {
   white-space: pre-wrap; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
