@@ -20,6 +20,16 @@ import * as bladeAdapter from './adapters/blade'
 // Re-export for api.ts consumers
 export type { AnnotationPayload }
 
+/** A v4 UUID. `crypto.randomUUID` exists only in secure contexts, and a phone opens a dev server over plain http. */
+function newId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const b = crypto.getRandomValues(new Uint8Array(16))
+  b[6] = (b[6] & 0x0f) | 0x40
+  b[8] = (b[8] & 0x3f) | 0x80
+  const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+}
+
 /** Normalize URL to pathname for page-scoping (ignore query/hash) */
 function pageKey(): string {
   return window.location.pathname
@@ -89,6 +99,7 @@ export class Instruckt {
     this.popup = new AnnotationPopup()
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
     this.listPanel = this.makeListPanel()
+    if (this.toolbar.isMinimized()) this.markers.setVisible(false)
 
     document.addEventListener('keydown', this.boundKeydown)
     window.addEventListener('scroll', this.boundReposition, { passive: true })
@@ -668,7 +679,7 @@ export class Instruckt {
       // No backend — create a local-only annotation
       annotation = {
         ...payload,
-        id: crypto.randomUUID(),
+        id: newId(),
         status: 'pending',
         createdAt: new Date().toISOString(),
       }
@@ -783,9 +794,13 @@ export class Instruckt {
     try {
       const el = document.createElement('textarea')
       el.value = md
-      el.style.cssText = 'position:fixed;left:-9999px'
+      el.readOnly = true
+      // 16px stops iOS from zooming; setSelectionRange is what iOS Safari needs to select
+      el.style.cssText = 'position:fixed;left:-9999px;top:0;font-size:16px'
+      el.setAttribute('data-instruckt', 'copy')
       document.body.appendChild(el)
       el.select()
+      el.setSelectionRange(0, md.length)
       const ok = document.execCommand('copy')
       el.remove()
       return ok

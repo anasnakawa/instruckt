@@ -106,6 +106,8 @@ export const TOOLBAR_CSS = /* css */ `
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 .btn[data-tooltip]:hover::before { opacity: 1; }
+/* No hover on touch screens: a tapped button would keep its tooltip up */
+@media (hover: none) { .btn[data-tooltip]::before { display: none; } }
 .btn.active { background: var(--ik-accent); color: #fff; }
 .btn.active:hover { background: var(--ik-accent-h); }
 
@@ -184,7 +186,8 @@ export const TOOLBAR_CSS = /* css */ `
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 .fab:hover { color: var(--ik-accent); transform: scale(1.1); }
-.fab { position: relative; }
+.fab { position: relative; touch-action: none; }
+@media (pointer: coarse) { .fab { width: 40px; height: 40px; } }
 
 .fab-badge {
   position: absolute;

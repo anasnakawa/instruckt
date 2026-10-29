@@ -141,6 +141,7 @@ export function selectRegion(): Promise<DOMRect | null> {
       zIndex: '2147483647',
       cursor: 'crosshair',
       background: 'rgba(0,0,0,0.1)',
+      touchAction: 'none',
     })
     overlay.setAttribute('data-instruckt', 'region-select')
 
@@ -157,7 +158,8 @@ export function selectRegion(): Promise<DOMRect | null> {
 
     let startX = 0, startY = 0, dragging = false
 
-    const onMouseDown = (e: MouseEvent) => {
+    const onMouseDown = (e: PointerEvent) => {
+      overlay.setPointerCapture(e.pointerId)
       startX = e.clientX
       startY = e.clientY
       dragging = true
@@ -165,12 +167,12 @@ export function selectRegion(): Promise<DOMRect | null> {
       updateBox(e)
     }
 
-    const onMouseMove = (e: MouseEvent) => {
+    const onMouseMove = (e: PointerEvent) => {
       if (!dragging) return
       updateBox(e)
     }
 
-    const updateBox = (e: MouseEvent) => {
+    const updateBox = (e: PointerEvent) => {
       const x = Math.min(startX, e.clientX)
       const y = Math.min(startY, e.clientY)
       const w = Math.abs(e.clientX - startX)
@@ -183,7 +185,7 @@ export function selectRegion(): Promise<DOMRect | null> {
       })
     }
 
-    const onMouseUp = (e: MouseEvent) => {
+    const onMouseUp = (e: PointerEvent) => {
       if (!dragging) return
       dragging = false
       const x = Math.min(startX, e.clientX)
@@ -210,9 +212,10 @@ export function selectRegion(): Promise<DOMRect | null> {
       document.removeEventListener('keydown', onKeyDown, true)
     }
 
-    overlay.addEventListener('mousedown', onMouseDown)
-    overlay.addEventListener('mousemove', onMouseMove)
-    overlay.addEventListener('mouseup', onMouseUp)
+    overlay.addEventListener('pointerdown', onMouseDown)
+    overlay.addEventListener('pointermove', onMouseMove)
+    overlay.addEventListener('pointerup', onMouseUp)
+    overlay.addEventListener('pointercancel', () => { cleanup(); resolve(null) })
     document.addEventListener('keydown', onKeyDown, true)
     document.body.appendChild(overlay)
   })

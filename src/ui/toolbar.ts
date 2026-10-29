@@ -44,6 +44,9 @@ export class Toolbar {
   private totalCount = 0
   private dragging = false
   private dragOffset = { x: 0, y: 0 }
+  private dragStart = { x: 0, y: 0 }
+  /** Set when a press on the round button turned into a drag, so it does not also open the toolbar */
+  private dragMoved = false
 
   private keys: KeyBindings
 
@@ -163,6 +166,7 @@ export class Toolbar {
     this.fab.style.display = 'none'
     this.fab.addEventListener('click', (e) => {
       e.stopPropagation()
+      if (this.dragMoved) return
       this.setMinimized(false)
     })
     this.shadow.appendChild(this.fab)
@@ -178,6 +182,33 @@ export class Toolbar {
     this.loadSavedPosition()
     const root = document.getElementById('instruckt-root') ?? document.body
     root.appendChild(this.host)
+    if (this.startMinimized()) this.minimize()
+    this.keepOnScreen()
+    window.addEventListener('resize', () => this.keepOnScreen(), { passive: true })
+  }
+
+  private static readonly MINIMIZED_KEY = 'instruckt:toolbar-min'
+
+  /** The last choice, or minimized on a small screen, where the open toolbar covers the page's own controls */
+  private startMinimized(): boolean {
+    try {
+      const saved = localStorage.getItem(Toolbar.MINIMIZED_KEY)
+      if (saved !== null) return saved === '1'
+    } catch {}
+    return window.matchMedia('(max-width: 639px), (max-height: 499px)').matches
+  }
+
+  /** A position saved on a wider screen can be off this one: pull it back into view */
+  private keepOnScreen(): void {
+    const r = this.host.getBoundingClientRect()
+    if (r.width === 0) return
+    const m = 8
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    if (r.left >= m && r.top >= m && r.right <= vw - m && r.bottom <= vh - m) return
+    const left = Math.max(m, Math.min(r.left, vw - r.width - m))
+    const top = Math.max(m, Math.min(r.top, vh - r.height - m))
+    Object.assign(this.host.style, { left: `${left}px`, bottom: `${vh - top - r.height}px`, top: 'auto', right: 'auto' })
   }
 
   /** Swap the icon for a check mark for a moment; badges are kept */
@@ -233,18 +264,24 @@ export class Toolbar {
     } catch {}
   }
 
+  /** Drag by mouse, pen or touch: the toolbar by its handle or empty space, the round button anywhere */
   private setupDrag(): void {
-    this.shadow.addEventListener('mousedown', (evt) => {
-      const e = evt as MouseEvent
-      if ((e.target as Element).closest('.btn') || (e.target as Element).closest('.fab')) return
+    this.shadow.addEventListener('pointerdown', (evt) => {
+      const e = evt as PointerEvent
+      const target = e.target as Element
+      if (target.closest('.btn')) return
       this.dragging = true
+      this.dragMoved = false
       const rect = this.host.getBoundingClientRect()
       this.dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-      e.preventDefault()
+      this.dragStart = { x: e.clientX, y: e.clientY }
+      if (!target.closest('.fab')) e.preventDefault()
     })
 
-    document.addEventListener('mousemove', (e) => {
+    document.addEventListener('pointermove', (e) => {
       if (!this.dragging) return
+      if (!this.dragMoved && Math.hypot(e.clientX - this.dragStart.x, e.clientY - this.dragStart.y) < 5) return
+      this.dragMoved = true
       Object.assign(this.host.style, {
         left: `${e.clientX - this.dragOffset.x}px`,
         bottom: `${window.innerHeight - (e.clientY - this.dragOffset.y) - this.host.offsetHeight}px`,
@@ -253,18 +290,28 @@ export class Toolbar {
       })
     })
 
-    document.addEventListener('mouseup', () => {
-      if (this.dragging) this.savePosition()
+    const end = (): void => {
+      if (!this.dragging) return
       this.dragging = false
-    })
+      if (this.dragMoved) {
+        this.keepOnScreen()
+        this.savePosition()
+        // The click that follows this pointerup must not open the toolbar
+        setTimeout(() => { this.dragMoved = false }, 0)
+      }
+    }
+    document.addEventListener('pointerup', end)
+    document.addEventListener('pointercancel', end)
   }
 
   private setMinimized(min: boolean): void {
     this.minimized = min
+    try { localStorage.setItem(Toolbar.MINIMIZED_KEY, min ? '1' : '0') } catch {}
     this.toolbarEl.style.display = min ? 'none' : ''
     this.fab.style.display = min ? '' : 'none'
     this.updateFabBadge()
     this.callbacks.onMinimize?.(min)
+    requestAnimationFrame(() => this.keepOnScreen())
   }
 
   private updateFabBadge(): void {
