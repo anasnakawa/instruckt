@@ -1,4 +1,4 @@
-import type { KeyBindings, ToolsConfig } from '../types'
+import type { DoneAction, KeyBindings, ToolsConfig } from '../types'
 import { TOOLBAR_CSS } from './styles'
 
 export type ToolbarMode = 'idle' | 'annotating'
@@ -12,6 +12,14 @@ interface ToolbarCallbacks {
   onClearPage?: () => void
   onClearAll?: () => void
   onMinimize?: (minimized: boolean) => void
+  /** Pressed on the error note: load the notes again */
+  onRetry?: () => void
+}
+
+/** Options that are not tools */
+export interface ToolbarOptions {
+  doneAction?: DoneAction
+  startMinimized?: boolean
 }
 
 // ── Inline SVG icons (24x24, 2px stroke) ─────────────────────
@@ -34,6 +42,8 @@ export class Toolbar {
   private toolbarEl!: HTMLDivElement
   private fab!: HTMLButtonElement
   private fabBadge: HTMLSpanElement | null = null
+  private doneBtn: HTMLButtonElement | null = null
+  private errorNote: HTMLButtonElement | null = null
   private annotateBtn!: HTMLButtonElement
   private listBtn!: HTMLButtonElement
   private copyBtn!: HTMLButtonElement
@@ -51,15 +61,18 @@ export class Toolbar {
   private keys: KeyBindings
 
   private readonly tools: ToolsConfig
+  private readonly options: ToolbarOptions
 
   constructor(
     private readonly position: string,
     private readonly callbacks: ToolbarCallbacks,
     keys?: KeyBindings,
     tools?: ToolsConfig,
+    options?: ToolbarOptions,
   ) {
     this.keys = keys ?? {}
     this.tools = tools ?? {}
+    this.options = options ?? {}
     this.build()
     this.setupDrag()
   }
@@ -171,6 +184,23 @@ export class Toolbar {
     })
     this.shadow.appendChild(this.fab)
 
+    // The way out: a text button big enough to tap, shown open and minimized
+    const done = this.options.doneAction
+    if (done) {
+      this.doneBtn = document.createElement('button')
+      this.doneBtn.className = 'done-btn'
+      this.doneBtn.title = done.title ?? done.label
+      this.doneBtn.setAttribute('aria-label', done.title ?? done.label)
+      this.doneBtn.textContent = done.label
+      this.doneBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        if (this.dragMoved) return
+        window.location.assign(done.href)
+      })
+      this.shadow.appendChild(this.doneBtn)
+      this.host.classList.add('ik-stack')
+    }
+
     // Prevent toolbar clicks from reaching page handlers (e.g. Alpine @click.outside)
     // Shadow DOM stopPropagation only works within the shadow tree — clicks still
     // re-dispatch from the host element into the regular DOM.
@@ -191,6 +221,7 @@ export class Toolbar {
 
   /** The last choice, or minimized on a small screen, where the open toolbar covers the page's own controls */
   private startMinimized(): boolean {
+    if (this.options.startMinimized !== undefined) return this.options.startMinimized
     try {
       const saved = localStorage.getItem(Toolbar.MINIMIZED_KEY)
       if (saved !== null) return saved === '1'
@@ -269,7 +300,7 @@ export class Toolbar {
     this.shadow.addEventListener('pointerdown', (evt) => {
       const e = evt as PointerEvent
       const target = e.target as Element
-      if (target.closest('.btn')) return
+      if (target.closest('.btn, .error-note')) return
       this.dragging = true
       this.dragMoved = false
       const rect = this.host.getBoundingClientRect()
@@ -378,6 +409,9 @@ export class Toolbar {
   setTotalCount(count: number): void {
     this.totalCount = count
     this.updateFabBadge()
+    if (this.doneBtn && this.options.doneAction) {
+      this.doneBtn.textContent = count > 0 ? `${this.options.doneAction.label} (${count > 99 ? '99+' : count})` : this.options.doneAction.label
+    }
     let badge = this.listBtn.querySelector('.badge')
     if (count > 0) {
       if (!badge) {
@@ -389,6 +423,28 @@ export class Toolbar {
     } else {
       badge?.remove()
     }
+  }
+
+  /** Show a short problem under the toolbar (null hides it); pressing it calls onRetry */
+  setError(message: string | null): void {
+    if (!message) {
+      this.errorNote?.remove()
+      this.errorNote = null
+      if (!this.doneBtn) this.host.classList.remove('ik-stack')
+      return
+    }
+    this.host.classList.add('ik-stack')
+    if (!this.errorNote) {
+      this.errorNote = document.createElement('button')
+      this.errorNote.className = 'error-note'
+      this.errorNote.setAttribute('role', 'alert')
+      this.errorNote.addEventListener('click', (e) => {
+        e.stopPropagation()
+        this.callbacks.onRetry?.()
+      })
+      this.shadow.appendChild(this.errorNote)
+    }
+    this.errorNote.textContent = message
   }
 
   destroy(): void {

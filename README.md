@@ -316,9 +316,30 @@ new Instruckt({
   // Set to true when using with Laravel or another backend that registers MCP tools
   mcp: false,
 
+  // Copy all open notes to the clipboard after each new note (default: true)
+  autoCopy: true,
+
+  // Poll the backend every 3 seconds while notes are open (default: true)
+  poll: true,
+
+  // Keep notes in the browser and make local-only notes when the backend fails (default: true).
+  // false: the backend is the only store; a failed save keeps the note open with an error.
+  localFallback: true,
+
+  // A text button under the toolbar and the round button, with the open note count: "Review and send (3)"
+  doneAction: { label: 'Review and send', href: '/feedback' },
+
+  // Start minimized (true) or open (false). Default: last choice, else minimized on a small screen
+  startMinimized: false,
+
   // Callbacks
   onAnnotationAdd: (annotation) => {},
+  onError: (op, err) => {},  // op: 'load' | 'add' | 'update'
 })
+
+// Methods on the returned instance
+// reload()       load the notes from the backend again (no timer; call it when the host app changed them)
+// pageChanged()  show this page's markers after client-side routing that fires no popstate
 ```
 
 ## Keyboard Shortcuts

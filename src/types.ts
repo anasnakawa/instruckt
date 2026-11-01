@@ -108,9 +108,34 @@ export interface InstrucktConfig {
   screenshotPath?: string
   /** Whether MCP tools (get_screenshot, resolve) are available. Default: false */
   mcp?: boolean
+  /** Copy all open notes to the clipboard after each new note. Default: true */
+  autoCopy?: boolean
+  /** Poll the backend every 3 seconds while notes are open (to see notes an agent resolved). Default: true */
+  poll?: boolean
+  /**
+   * Keep notes in localStorage / IndexedDB and make local-only notes when the backend fails. Default: true.
+   * When false the backend is the only store: a note that fails to save keeps its popup open with an
+   * error, and a failed first load shows the toolbar in an error state.
+   */
+  localFallback?: boolean
+  /** A text button on the toolbar and next to the round button: label and the number of open notes. Goes to href. */
+  doneAction?: DoneAction
+  /** Start minimized (true) or open (false). Default: the last choice, else minimized on a small screen */
+  startMinimized?: boolean
+  /** Called when a backend call fails */
+  onError?: (op: 'load' | 'add' | 'update', err: unknown) => void
   /** Callbacks */
   onAnnotationAdd?: (annotation: Annotation) => void
   onAnnotationResolve?: (annotation: Annotation) => void
+}
+
+export interface DoneAction {
+  /** Button text, e.g. 'Review and send'. The count of open notes is added: 'Review and send (3)' */
+  label: string
+  /** Where the button goes (normal navigation) */
+  href: string
+  /** Tooltip and accessible name. Default: label */
+  title?: string
 }
 
 export interface PendingAnnotation {

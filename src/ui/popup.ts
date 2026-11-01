@@ -8,7 +8,8 @@ interface PopupResult {
 }
 
 interface PopupCallbacks {
-  onSubmit: (result: PopupResult) => void
+  /** Resolve false to keep the popup open with an error, so the user can try again */
+  onSubmit: (result: PopupResult) => void | Promise<boolean>
   onCancel: () => void
 }
 
@@ -133,10 +134,28 @@ export class AnnotationPopup {
     popup.querySelector('.close-btn')!.addEventListener('click', () => {
       callbacks.onCancel(); this.destroy()
     })
-    submitBtn.addEventListener('click', () => {
+    submitBtn.addEventListener('click', async () => {
       const comment = textarea.value.trim()
       if (!comment && !currentScreenshot) return
-      callbacks.onSubmit({ comment: comment || '(screenshot)', screenshot: currentScreenshot ?? undefined })
+      const saving = callbacks.onSubmit({ comment: comment || '(screenshot)', screenshot: currentScreenshot ?? undefined })
+      if (saving instanceof Promise) {
+        const host = this.host
+        submitBtn.disabled = true
+        submitBtn.textContent = 'Saving...'
+        popup.querySelector('.save-error')?.remove()
+        const ok = await saving
+        if (this.host !== host) return
+        if (!ok) {
+          submitBtn.textContent = 'Add note'
+          updateSubmitState()
+          const err = document.createElement('div')
+          err.className = 'save-error'
+          err.setAttribute('role', 'alert')
+          err.textContent = 'Not saved. Check your connection and try again.'
+          popup.querySelector('.actions')!.before(err)
+          return
+        }
+      }
       this.destroy()
     })
 

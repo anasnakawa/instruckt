@@ -96,9 +96,33 @@ interface InstrucktConfig {
     screenshotPath?: string;
     /** Whether MCP tools (get_screenshot, resolve) are available. Default: false */
     mcp?: boolean;
+    /** Copy all open notes to the clipboard after each new note. Default: true */
+    autoCopy?: boolean;
+    /** Poll the backend every 3 seconds while notes are open (to see notes an agent resolved). Default: true */
+    poll?: boolean;
+    /**
+     * Keep notes in localStorage / IndexedDB and make local-only notes when the backend fails. Default: true.
+     * When false the backend is the only store: a note that fails to save keeps its popup open with an
+     * error, and a failed first load shows the toolbar in an error state.
+     */
+    localFallback?: boolean;
+    /** A text button on the toolbar and next to the round button: label and the number of open notes. Goes to href. */
+    doneAction?: DoneAction;
+    /** Start minimized (true) or open (false). Default: the last choice, else minimized on a small screen */
+    startMinimized?: boolean;
+    /** Called when a backend call fails */
+    onError?: (op: 'load' | 'add' | 'update', err: unknown) => void;
     /** Callbacks */
     onAnnotationAdd?: (annotation: Annotation) => void;
     onAnnotationResolve?: (annotation: Annotation) => void;
+}
+interface DoneAction {
+    /** Button text, e.g. 'Review and send'. The count of open notes is added: 'Review and send (3)' */
+    label: string;
+    /** Where the button goes (normal navigation) */
+    href: string;
+    /** Tooltip and accessible name. Default: label */
+    title?: string;
 }
 
 type AnnotationPayload = Omit<Annotation, 'id' | 'status' | 'thread' | 'createdAt'>;
@@ -128,6 +152,9 @@ declare class Instruckt {
     private init;
     private makeTouchAim;
     private makeToolbarCallbacks;
+    private toolbarOptions;
+    /** Whether notes may live in the browser (localStorage / IndexedDB, local-only notes) */
+    private get local();
     private makeListPanel;
     private setListOpen;
     /** Bring an annotation into view: scroll to it on this page, or open its page. */
@@ -170,6 +197,7 @@ declare class Instruckt {
      * Livewire and Blade are handled by our adapters only (element-source doesn't support them).
      */
     private detectFramework;
+    /** Save a new note; false when it was not saved (only with localFallback off) */
     private submitAnnotation;
     private onMarkerClick;
     private saveComment;
@@ -185,6 +213,10 @@ declare class Instruckt {
     private copyAnnotations;
     exportMarkdown(list?: Annotation[]): string;
     getAnnotations(): Annotation[];
+    /** Load the notes from the backend again, e.g. after the host app changed them elsewhere. No timer: call it when needed. */
+    reload(): Promise<void>;
+    /** Tell the toolbar the page changed without a reload (client-side routing that fires no popstate): shows this page's markers */
+    pageChanged(): void;
     destroy(): void;
 }
 
@@ -200,4 +232,4 @@ declare class Instruckt {
  */
 declare function init(config: InstrucktConfig): Instruckt;
 
-export { type Annotation, type AnnotationIntent, type AnnotationPayload, type AnnotationSeverity, type AnnotationStatus, type FrameworkContext, Instruckt, type InstrucktConfig, type SourceFrame, init };
+export { type Annotation, type AnnotationIntent, type AnnotationPayload, type AnnotationSeverity, type AnnotationStatus, type DoneAction, type FrameworkContext, Instruckt, type InstrucktConfig, type SourceFrame, init };

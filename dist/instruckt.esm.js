@@ -350,6 +350,23 @@ var TOOLBAR_CSS = (
   line-height: 1;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
+
+/* doneAction and the load error sit under the toolbar or the round button */
+:host(.ik-stack) { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.done-btn, .error-note {
+  border: none;
+  border-radius: 999px;
+  min-height: 36px;
+  padding: 0 14px;
+  white-space: nowrap;
+  font: 600 13px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  cursor: pointer;
+  box-shadow: var(--ik-shadow);
+}
+.done-btn { background: var(--ik-accent); color: #fff; }
+.done-btn:hover { background: var(--ik-accent-h); }
+.error-note { background: #fef2f2; color: #b91c1c; max-width: 240px; white-space: normal; line-height: 1.3; padding: 8px 12px; }
+@media (pointer: coarse) { .done-btn { min-height: 44px; padding: 0 18px; font-size: 15px; } }
 `
 );
 var POPUP_CSS = (
@@ -511,6 +528,7 @@ textarea:focus { border-color:var(--ik-accent); }
 textarea::placeholder { color:var(--ik-muted); }
 
 .actions { display:flex; justify-content:flex-end; gap:6px; }
+.save-error { color:#ef4444; font-size:12px; margin:-4px 0 8px; }
 
 .btn-secondary {
   padding:6px 14px; border-radius:6px; border:1px solid var(--ik-border);
@@ -777,10 +795,12 @@ var ICONS = {
   logo: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`
 };
 var _Toolbar = class _Toolbar {
-  constructor(position, callbacks, keys, tools) {
+  constructor(position, callbacks, keys, tools, options) {
     this.position = position;
     this.callbacks = callbacks;
     this.fabBadge = null;
+    this.doneBtn = null;
+    this.errorNote = null;
     this.annotateActive = false;
     this.listActive = false;
     this.minimized = false;
@@ -792,6 +812,7 @@ var _Toolbar = class _Toolbar {
     this.dragMoved = false;
     this.keys = keys != null ? keys : {};
     this.tools = tools != null ? tools : {};
+    this.options = options != null ? options : {};
     this.build();
     this.setupDrag();
   }
@@ -801,7 +822,7 @@ var _Toolbar = class _Toolbar {
     return v !== false;
   }
   build() {
-    var _a2, _b, _c, _d, _e;
+    var _a2, _b, _c, _d, _e, _f, _g;
     this.host = document.createElement("div");
     this.host.setAttribute("data-instruckt", "toolbar");
     this.shadow = this.host.attachShadow({ mode: "open" });
@@ -891,12 +912,27 @@ var _Toolbar = class _Toolbar {
       this.setMinimized(false);
     });
     this.shadow.appendChild(this.fab);
+    const done = this.options.doneAction;
+    if (done) {
+      this.doneBtn = document.createElement("button");
+      this.doneBtn.className = "done-btn";
+      this.doneBtn.title = (_e = done.title) != null ? _e : done.label;
+      this.doneBtn.setAttribute("aria-label", (_f = done.title) != null ? _f : done.label);
+      this.doneBtn.textContent = done.label;
+      this.doneBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (this.dragMoved) return;
+        window.location.assign(done.href);
+      });
+      this.shadow.appendChild(this.doneBtn);
+      this.host.classList.add("ik-stack");
+    }
     this.host.addEventListener("click", (e) => e.stopPropagation());
     this.host.addEventListener("mousedown", (e) => e.stopPropagation());
     this.host.addEventListener("pointerdown", (e) => e.stopPropagation());
     this.applyPosition();
     this.loadSavedPosition();
-    const root = (_e = document.getElementById("instruckt-root")) != null ? _e : document.body;
+    const root = (_g = document.getElementById("instruckt-root")) != null ? _g : document.body;
     root.appendChild(this.host);
     if (this.startMinimized()) this.minimize();
     this.keepOnScreen();
@@ -904,6 +940,7 @@ var _Toolbar = class _Toolbar {
   }
   /** The last choice, or minimized on a small screen, where the open toolbar covers the page's own controls */
   startMinimized() {
+    if (this.options.startMinimized !== void 0) return this.options.startMinimized;
     try {
       const saved = localStorage.getItem(_Toolbar.MINIMIZED_KEY);
       if (saved !== null) return saved === "1";
@@ -978,7 +1015,7 @@ var _Toolbar = class _Toolbar {
     this.shadow.addEventListener("pointerdown", (evt) => {
       const e = evt;
       const target = e.target;
-      if (target.closest(".btn")) return;
+      if (target.closest(".btn, .error-note")) return;
       this.dragging = true;
       this.dragMoved = false;
       const rect = this.host.getBoundingClientRect();
@@ -1081,6 +1118,9 @@ var _Toolbar = class _Toolbar {
   setTotalCount(count) {
     this.totalCount = count;
     this.updateFabBadge();
+    if (this.doneBtn && this.options.doneAction) {
+      this.doneBtn.textContent = count > 0 ? `${this.options.doneAction.label} (${count > 99 ? "99+" : count})` : this.options.doneAction.label;
+    }
     let badge = this.listBtn.querySelector(".badge");
     if (count > 0) {
       if (!badge) {
@@ -1092,6 +1132,29 @@ var _Toolbar = class _Toolbar {
     } else {
       badge == null ? void 0 : badge.remove();
     }
+  }
+  /** Show a short problem under the toolbar (null hides it); pressing it calls onRetry */
+  setError(message) {
+    var _a2;
+    if (!message) {
+      (_a2 = this.errorNote) == null ? void 0 : _a2.remove();
+      this.errorNote = null;
+      if (!this.doneBtn) this.host.classList.remove("ik-stack");
+      return;
+    }
+    this.host.classList.add("ik-stack");
+    if (!this.errorNote) {
+      this.errorNote = document.createElement("button");
+      this.errorNote.className = "error-note";
+      this.errorNote.setAttribute("role", "alert");
+      this.errorNote.addEventListener("click", (e) => {
+        var _a3, _b;
+        e.stopPropagation();
+        (_b = (_a3 = this.callbacks).onRetry) == null ? void 0 : _b.call(_a3);
+      });
+      this.shadow.appendChild(this.errorNote);
+    }
+    this.errorNote.textContent = message;
   }
   destroy() {
     this.host.remove();
@@ -3033,10 +3096,29 @@ var AnnotationPopup = class {
       callbacks.onCancel();
       this.destroy();
     });
-    submitBtn.addEventListener("click", () => {
+    submitBtn.addEventListener("click", async () => {
+      var _a3;
       const comment = textarea.value.trim();
       if (!comment && !currentScreenshot) return;
-      callbacks.onSubmit({ comment: comment || "(screenshot)", screenshot: currentScreenshot != null ? currentScreenshot : void 0 });
+      const saving = callbacks.onSubmit({ comment: comment || "(screenshot)", screenshot: currentScreenshot != null ? currentScreenshot : void 0 });
+      if (saving instanceof Promise) {
+        const host = this.host;
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Saving...";
+        (_a3 = popup.querySelector(".save-error")) == null ? void 0 : _a3.remove();
+        const ok = await saving;
+        if (this.host !== host) return;
+        if (!ok) {
+          submitBtn.textContent = "Add note";
+          updateSubmitState();
+          const err = document.createElement("div");
+          err.className = "save-error";
+          err.setAttribute("role", "alert");
+          err.textContent = "Not saved. Check your connection and try again.";
+          popup.querySelector(".actions").before(err);
+          return;
+        }
+      }
       this.destroy();
     });
     this.shadow.appendChild(popup);
@@ -4237,8 +4319,9 @@ var _Instruckt = class _Instruckt {
       onToggleList: (open) => this.setListOpen(open),
       onClearPage: () => this.clearPage(),
       onClearAll: () => this.clearEverything(),
-      onMinimize: (min) => this.onMinimize(min)
-    }, this.config.keys, this.config.tools);
+      onMinimize: (min) => this.onMinimize(min),
+      onRetry: () => void this.reload()
+    }, this.config.keys, this.config.tools, this.toolbarOptions());
     this.highlight = new ElementHighlight();
     this.touchAim = this.makeTouchAim();
     this.popup = new AnnotationPopup();
@@ -4285,8 +4368,16 @@ var _Instruckt = class _Instruckt {
       onToggleList: (open) => this.setListOpen(open),
       onClearPage: () => this.clearPage(),
       onClearAll: () => this.clearEverything(),
-      onMinimize: (min) => this.onMinimize(min)
+      onMinimize: (min) => this.onMinimize(min),
+      onRetry: () => void this.reload()
     };
+  }
+  toolbarOptions() {
+    return { doneAction: this.config.doneAction, startMinimized: this.config.startMinimized };
+  }
+  /** Whether notes may live in the browser (localStorage / IndexedDB, local-only notes) */
+  get local() {
+    return this.config.localFallback !== false;
   }
   makeListPanel() {
     return new ListPanel({
@@ -4342,7 +4433,7 @@ var _Instruckt = class _Instruckt {
     if (this.isAnnotating) this.detachAnnotateListeners();
     this.isAnnotating = false;
     document.querySelectorAll("[data-instruckt]").forEach((el) => el.remove());
-    this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools);
+    this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools, this.toolbarOptions());
     if (wasMinimized) this.toolbar.minimize();
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation));
     this.highlight = new ElementHighlight();
@@ -4374,21 +4465,30 @@ var _Instruckt = class _Instruckt {
     return `instruckt:${window.location.origin}:annotations`;
   }
   async loadAnnotations() {
+    var _a2, _b, _c, _d;
     this.loadFromStorage();
     try {
       const remote = await this.api.getAnnotations();
       this.hasBackend = true;
-      const remoteIds = new Set(remote.map((a) => a.id));
-      const localOnly = this.annotations.filter((a) => !remoteIds.has(a.id));
-      this.annotations = [...remote, ...localOnly];
-      this.saveToStorage();
-    } catch (e) {
+      (_a2 = this.toolbar) == null ? void 0 : _a2.setError(null);
+      if (this.local) {
+        const remoteIds = new Set(remote.map((a) => a.id));
+        const localOnly = this.annotations.filter((a) => !remoteIds.has(a.id));
+        this.annotations = [...remote, ...localOnly];
+        this.saveToStorage();
+      } else {
+        this.annotations = remote;
+      }
+    } catch (err) {
       this.hasBackend = false;
+      (_c = (_b = this.config).onError) == null ? void 0 : _c.call(_b, "load", err);
+      if (!this.local) (_d = this.toolbar) == null ? void 0 : _d.setError("Notes not loaded. Tap to try again.");
     }
     this.initialLoadDone = true;
     this.syncMarkers();
   }
   saveToStorage() {
+    if (!this.local) return;
     try {
       const screenshotMap = /* @__PURE__ */ new Map();
       const stripped = this.annotations.map((a) => {
@@ -4405,6 +4505,7 @@ var _Instruckt = class _Instruckt {
     }
   }
   loadFromStorage() {
+    if (!this.local) return;
     try {
       const raw = localStorage.getItem(_Instruckt.STORAGE_KEY);
       if (raw) {
@@ -4466,6 +4567,7 @@ var _Instruckt = class _Instruckt {
   /** Start or stop polling based on whether there are active annotations */
   updatePolling() {
     if (!this.initialLoadDone) return;
+    if (this.config.poll === false) return;
     const hasActive = this.totalActiveCount() > 0;
     if (hasActive && !this.pollTimer) {
       this.pollTimer = setInterval(() => this.pollForChanges(), 3e3);
@@ -4581,11 +4683,20 @@ var _Instruckt = class _Instruckt {
     var _a2;
     (_a2 = this.popup) == null ? void 0 : _a2.showNew(pending, {
       onSubmit: (result) => {
-        var _a3, _b;
-        (_a3 = this.touchAim) == null ? void 0 : _a3.done();
-        this.highlightLocked = false;
-        (_b = this.highlight) == null ? void 0 : _b.hide();
-        this.submitAnnotation(pending, result.comment, result.screenshot);
+        const finish = () => {
+          var _a3, _b;
+          (_a3 = this.touchAim) == null ? void 0 : _a3.done();
+          this.highlightLocked = false;
+          (_b = this.highlight) == null ? void 0 : _b.hide();
+        };
+        if (!this.local) {
+          return this.submitAnnotation(pending, result.comment, result.screenshot).then((ok) => {
+            if (ok) finish();
+            return ok;
+          });
+        }
+        finish();
+        void this.submitAnnotation(pending, result.comment, result.screenshot);
       },
       onCancel: () => {
         var _a3, _b;
@@ -4722,8 +4833,9 @@ var _Instruckt = class _Instruckt {
     return null;
   }
   // ── Submit ────────────────────────────────────────────────────
+  /** Save a new note; false when it was not saved (only with localFallback off) */
   async submitAnnotation(pending, comment, screenshot) {
-    var _a2, _b;
+    var _a2, _b, _c, _d;
     const payload = {
       x: pending.x / window.innerWidth * 100,
       y: pending.y + window.scrollY,
@@ -4743,7 +4855,9 @@ var _Instruckt = class _Instruckt {
     let annotation;
     try {
       annotation = await this.api.addAnnotation(payload);
-    } catch (e) {
+    } catch (err) {
+      (_b = (_a2 = this.config).onError) == null ? void 0 : _b.call(_a2, "add", err);
+      if (!this.local) return false;
       annotation = __spreadProps(__spreadValues({}, payload), {
         id: newId(),
         status: "pending",
@@ -4753,8 +4867,9 @@ var _Instruckt = class _Instruckt {
     this.annotations.push(annotation);
     this.saveToStorage();
     this.syncMarkers();
-    (_b = (_a2 = this.config).onAnnotationAdd) == null ? void 0 : _b.call(_a2, annotation);
-    this.copyAnnotations(this.activeAnnotations(), false);
+    (_d = (_c = this.config).onAnnotationAdd) == null ? void 0 : _d.call(_c, annotation);
+    if (this.config.autoCopy !== false) void this.copyAnnotations(this.activeAnnotations(), false);
+    return true;
   }
   // ── Marker click — edit or delete ─────────────────────────────
   onMarkerClick(annotation) {
@@ -4765,11 +4880,13 @@ var _Instruckt = class _Instruckt {
     }, this.config.endpoint);
   }
   async saveComment(a, comment) {
+    var _a2, _b;
     try {
       const updated = await this.api.updateAnnotation(a.id, { comment });
       this.onAnnotationUpdated(updated);
-    } catch (e) {
-      this.onAnnotationUpdated(__spreadProps(__spreadValues({}, a), { comment, updatedAt: (/* @__PURE__ */ new Date()).toISOString() }));
+    } catch (err) {
+      (_b = (_a2 = this.config).onError) == null ? void 0 : _b.call(_a2, "update", err);
+      if (this.local) this.onAnnotationUpdated(__spreadProps(__spreadValues({}, a), { comment, updatedAt: (/* @__PURE__ */ new Date()).toISOString() }));
     }
   }
   onAnnotationUpdated(updated) {
@@ -4783,9 +4900,13 @@ var _Instruckt = class _Instruckt {
   /** Dismiss on the backend (best effort) and drop locally. */
   async deleteAnnotations(list) {
     if (list.length === 0) return;
-    await Promise.all(list.map((a) => this.api.updateAnnotation(a.id, { status: "dismissed" }).catch(() => {
+    const failed = /* @__PURE__ */ new Set();
+    await Promise.all(list.map((a) => this.api.updateAnnotation(a.id, { status: "dismissed" }).catch((err) => {
+      var _a2, _b;
+      (_b = (_a2 = this.config).onError) == null ? void 0 : _b.call(_a2, "update", err);
+      if (!this.local) failed.add(a.id);
     })));
-    const ids = new Set(list.map((a) => a.id));
+    const ids = new Set(list.filter((a) => !failed.has(a.id)).map((a) => a.id));
     this.annotations = this.annotations.filter((a) => !ids.has(a.id));
     this.saveToStorage();
     this.syncMarkers();
@@ -4946,6 +5067,20 @@ No open annotations.`;
   // ── Public API ────────────────────────────────────────────────
   getAnnotations() {
     return [...this.annotations];
+  }
+  /** Load the notes from the backend again, e.g. after the host app changed them elsewhere. No timer: call it when needed. */
+  reload() {
+    return this.loadAnnotations();
+  }
+  /** Tell the toolbar the page changed without a reload (client-side routing that fires no popstate): shows this page's markers */
+  pageChanged() {
+    var _a2, _b, _c, _d;
+    (_a2 = this.popup) == null ? void 0 : _a2.destroy();
+    (_b = this.touchAim) == null ? void 0 : _b.done();
+    this.highlightLocked = false;
+    (_c = this.highlight) == null ? void 0 : _c.hide();
+    if ((_d = this.listPanel) == null ? void 0 : _d.isOpen()) this.setListOpen(false);
+    this.syncMarkers();
   }
   destroy() {
     var _a2, _b, _c, _d, _e, _f;

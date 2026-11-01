@@ -97,7 +97,8 @@ export class Instruckt {
       onClearPage: () => this.clearPage(),
       onClearAll: () => this.clearEverything(),
       onMinimize: (min) => this.onMinimize(min),
-    }, this.config.keys, this.config.tools)
+      onRetry: () => void this.reload(),
+    }, this.config.keys, this.config.tools, this.toolbarOptions())
 
     this.highlight = new ElementHighlight()
     this.touchAim = this.makeTouchAim()
@@ -152,7 +153,17 @@ export class Instruckt {
       onClearPage: () => this.clearPage(),
       onClearAll: () => this.clearEverything(),
       onMinimize: (min: boolean) => this.onMinimize(min),
+      onRetry: () => void this.reload(),
     }
+  }
+
+  private toolbarOptions() {
+    return { doneAction: this.config.doneAction, startMinimized: this.config.startMinimized }
+  }
+
+  /** Whether notes may live in the browser (localStorage / IndexedDB, local-only notes) */
+  private get local(): boolean {
+    return this.config.localFallback !== false
   }
 
   private makeListPanel(): ListPanel {
@@ -203,7 +214,7 @@ export class Instruckt {
     document.querySelectorAll('[data-instruckt]').forEach(el => el.remove())
 
     // Rebuild everything fresh
-    this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools)
+    this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools, this.toolbarOptions())
     if (wasMinimized) this.toolbar.minimize()
 
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
@@ -254,20 +265,28 @@ export class Instruckt {
     try {
       const remote = await this.api.getAnnotations()
       this.hasBackend = true
-      // Merge: remote is source of truth, but keep any local-only annotations
-      const remoteIds = new Set(remote.map(a => a.id))
-      const localOnly = this.annotations.filter(a => !remoteIds.has(a.id))
-      this.annotations = [...remote, ...localOnly]
-      this.saveToStorage()
-    } catch {
+      this.toolbar?.setError(null)
+      if (this.local) {
+        // Merge: remote is source of truth, but keep any local-only annotations
+        const remoteIds = new Set(remote.map(a => a.id))
+        const localOnly = this.annotations.filter(a => !remoteIds.has(a.id))
+        this.annotations = [...remote, ...localOnly]
+        this.saveToStorage()
+      } else {
+        this.annotations = remote
+      }
+    } catch (err) {
       // No backend — localStorage already loaded above
       this.hasBackend = false
+      this.config.onError?.('load', err)
+      if (!this.local) this.toolbar?.setError('Notes not loaded. Tap to try again.')
     }
     this.initialLoadDone = true
     this.syncMarkers()
   }
 
   private saveToStorage(): void {
+    if (!this.local) return
     try {
       // Store screenshot data URIs in IndexedDB to avoid blowing localStorage's ~5MB limit
       const screenshotMap = new Map<string, string>()
@@ -284,6 +303,7 @@ export class Instruckt {
   }
 
   private loadFromStorage(): void {
+    if (!this.local) return
     try {
       const raw = localStorage.getItem(Instruckt.STORAGE_KEY)
       if (raw) {
@@ -347,6 +367,7 @@ export class Instruckt {
     // Don't start polling until the initial backend fetch has completed —
     // stale localStorage may show phantom active annotations.
     if (!this.initialLoadDone) return
+    if (this.config.poll === false) return
 
     const hasActive = this.totalActiveCount() > 0
     if (hasActive && !this.pollTimer) {
@@ -523,10 +544,20 @@ export class Instruckt {
   private showAnnotationPopup(pending: PendingAnnotation): void {
     this.popup?.showNew(pending, {
       onSubmit: (result) => {
-        this.touchAim?.done()
-        this.highlightLocked = false
-        this.highlight?.hide()
-        this.submitAnnotation(pending, result.comment, result.screenshot)
+        const finish = () => {
+          this.touchAim?.done()
+          this.highlightLocked = false
+          this.highlight?.hide()
+        }
+        if (!this.local) {
+          // The backend is the only store: the popup stays open until the note is saved
+          return this.submitAnnotation(pending, result.comment, result.screenshot).then(ok => {
+            if (ok) finish()
+            return ok
+          })
+        }
+        finish()
+        void this.submitAnnotation(pending, result.comment, result.screenshot)
       },
       onCancel: () => {
         this.touchAim?.done()
@@ -695,7 +726,8 @@ export class Instruckt {
 
   // ── Submit ────────────────────────────────────────────────────
 
-  private async submitAnnotation(pending: PendingAnnotation, comment: string, screenshot?: string): Promise<void> {
+  /** Save a new note; false when it was not saved (only with localFallback off) */
+  private async submitAnnotation(pending: PendingAnnotation, comment: string, screenshot?: string): Promise<boolean> {
     const payload: AnnotationPayload = {
       x: (pending.x / window.innerWidth) * 100,
       y: pending.y + window.scrollY,
@@ -716,7 +748,9 @@ export class Instruckt {
     let annotation: Annotation
     try {
       annotation = await this.api.addAnnotation(payload)
-    } catch {
+    } catch (err) {
+      this.config.onError?.('add', err)
+      if (!this.local) return false
       // No backend — create a local-only annotation
       annotation = {
         ...payload,
@@ -730,7 +764,8 @@ export class Instruckt {
     this.syncMarkers()
     this.config.onAnnotationAdd?.(annotation)
     // Auto-copy everything open; no execCommand fallback, it would steal focus from the page
-    this.copyAnnotations(this.activeAnnotations(), false)
+    if (this.config.autoCopy !== false) void this.copyAnnotations(this.activeAnnotations(), false)
+    return true
   }
 
   // ── Marker click — edit or delete ─────────────────────────────
@@ -746,9 +781,10 @@ export class Instruckt {
     try {
       const updated = await this.api.updateAnnotation(a.id, { comment })
       this.onAnnotationUpdated(updated)
-    } catch {
+    } catch (err) {
+      this.config.onError?.('update', err)
       // No backend: update locally
-      this.onAnnotationUpdated({ ...a, comment, updatedAt: new Date().toISOString() })
+      if (this.local) this.onAnnotationUpdated({ ...a, comment, updatedAt: new Date().toISOString() })
     }
   }
 
@@ -764,8 +800,13 @@ export class Instruckt {
   /** Dismiss on the backend (best effort) and drop locally. */
   private async deleteAnnotations(list: Annotation[]): Promise<void> {
     if (list.length === 0) return
-    await Promise.all(list.map(a => this.api.updateAnnotation(a.id, { status: 'dismissed' }).catch(() => { /* no backend */ })))
-    const ids = new Set(list.map(a => a.id))
+    const failed = new Set<string>()
+    await Promise.all(list.map(a => this.api.updateAnnotation(a.id, { status: 'dismissed' }).catch((err) => {
+      this.config.onError?.('update', err)
+      // no backend: drop it here anyway, unless the backend is the only store
+      if (!this.local) failed.add(a.id)
+    })))
+    const ids = new Set(list.filter(a => !failed.has(a.id)).map(a => a.id))
     this.annotations = this.annotations.filter(a => !ids.has(a.id))
     this.saveToStorage()
     this.syncMarkers()
@@ -948,6 +989,21 @@ export class Instruckt {
   // ── Public API ────────────────────────────────────────────────
 
   getAnnotations(): Annotation[] { return [...this.annotations] }
+
+  /** Load the notes from the backend again, e.g. after the host app changed them elsewhere. No timer: call it when needed. */
+  reload(): Promise<void> {
+    return this.loadAnnotations()
+  }
+
+  /** Tell the toolbar the page changed without a reload (client-side routing that fires no popstate): shows this page's markers */
+  pageChanged(): void {
+    this.popup?.destroy()
+    this.touchAim?.done()
+    this.highlightLocked = false
+    this.highlight?.hide()
+    if (this.listPanel?.isOpen()) this.setListOpen(false)
+    this.syncMarkers()
+  }
 
   destroy(): void {
     this.setAnnotating(false)

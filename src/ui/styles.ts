@@ -251,6 +251,23 @@ export const TOOLBAR_CSS = /* css */ `
   line-height: 1;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
+
+/* doneAction and the load error sit under the toolbar or the round button */
+:host(.ik-stack) { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.done-btn, .error-note {
+  border: none;
+  border-radius: 999px;
+  min-height: 36px;
+  padding: 0 14px;
+  white-space: nowrap;
+  font: 600 13px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  cursor: pointer;
+  box-shadow: var(--ik-shadow);
+}
+.done-btn { background: var(--ik-accent); color: #fff; }
+.done-btn:hover { background: var(--ik-accent-h); }
+.error-note { background: #fef2f2; color: #b91c1c; max-width: 240px; white-space: normal; line-height: 1.3; padding: 8px 12px; }
+@media (pointer: coarse) { .done-btn { min-height: 44px; padding: 0 18px; font-size: 15px; } }
 `
 
 /** Popup shadow DOM styles — fully isolated */
@@ -411,6 +428,7 @@ textarea:focus { border-color:var(--ik-accent); }
 textarea::placeholder { color:var(--ik-muted); }
 
 .actions { display:flex; justify-content:flex-end; gap:6px; }
+.save-error { color:#ef4444; font-size:12px; margin:-4px 0 8px; }
 
 .btn-secondary {
   padding:6px 14px; border-radius:6px; border:1px solid var(--ik-border);

@@ -1,9 +1,9 @@
 import { Instruckt } from './instruckt'
-import type { InstrucktConfig, Annotation, AnnotationIntent, AnnotationSeverity, AnnotationStatus, FrameworkContext, SourceFrame } from './types'
+import type { InstrucktConfig, DoneAction, Annotation, AnnotationIntent, AnnotationSeverity, AnnotationStatus, FrameworkContext, SourceFrame } from './types'
 import type { AnnotationPayload } from './api'
 
 export { Instruckt }
-export type { InstrucktConfig, Annotation, AnnotationPayload, AnnotationIntent, AnnotationSeverity, AnnotationStatus, FrameworkContext, SourceFrame }
+export type { InstrucktConfig, DoneAction, Annotation, AnnotationPayload, AnnotationIntent, AnnotationSeverity, AnnotationStatus, FrameworkContext, SourceFrame }
 
 /**
  * Initialize instruckt.
